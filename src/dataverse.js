@@ -114,11 +114,12 @@ async function dataverseFetch(config, token, path, options = {}) {
   return response.json();
 }
 
-function normalizeGuid(value) {
+export function normalizeGuid(value) {
   const guid = String(value || "").replace(/[{}]/g, "").toLowerCase();
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
-    guid,
-  )
+  // Dataverse identifiers are GUIDs, but their version and variant bits are not
+  // guaranteed to follow the RFC 4122 restrictions. Only validate the canonical
+  // 8-4-4-4-12 hexadecimal shape so valid Dataverse record IDs are not discarded.
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(guid)
     ? guid
     : "";
 }

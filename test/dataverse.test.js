@@ -10,11 +10,20 @@ import {
   extractQualificationOptions,
   filterAppointmentsForCurrentUser,
   getRegardingReference,
+  normalizeGuid,
   rankAppointmentCandidates,
 } from "../src/dataverse.js";
 
 test("escapeODataString doubles apostrophes", () => {
   assert.equal(escapeODataString("L'équipe d'Aline"), "L''équipe d''Aline");
+});
+
+test("Dataverse GUIDs are accepted regardless of RFC version and variant bits", () => {
+  assert.equal(
+    normalizeGuid("{11111111-2222-7333-6444-555555555555}"),
+    "11111111-2222-7333-6444-555555555555",
+  );
+  assert.equal(normalizeGuid("not-a-guid"), "");
 });
 
 test("buildAppointmentQuery creates a 30-minute UTC window", () => {
