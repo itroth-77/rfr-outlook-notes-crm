@@ -97,6 +97,12 @@ La version 2.0.5 charge également la bibliothèque Office après l’affichage 
 l’interface. Une indisponibilité d’Office.js ne peut ainsi plus bloquer le volet
 avant même le démarrage du diagnostic.
 
+La version 2.0.6 n’attend plus obligatoirement la résolution de
+`Office.onReady()`. Lorsque le rendez-vous est déjà exposé dans
+`Office.context.mailbox.item`, il est lu directement. Dans le cas contraire,
+le complément attend en parallèle la fin de l’initialisation ou l’apparition du
+rendez-vous.
+
 Si Outlook ferme le volet avant de pouvoir afficher l’erreur, la dernière étape
 atteinte est conservée uniquement dans le stockage local du volet. Elle est
 présentée à la prochaine ouverture réussie. Le diagnostic ne contient ni sujet,

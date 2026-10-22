@@ -109,9 +109,9 @@ function readText(value, fieldName) {
   return Promise.resolve(value ?? "");
 }
 
-async function waitForAppointmentItem() {
+async function waitForAppointmentItem(timeoutMilliseconds = ITEM_WAIT_TIMEOUT_MS) {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < ITEM_WAIT_TIMEOUT_MS) {
+  while (Date.now() - startedAt < timeoutMilliseconds) {
     const item = globalThis.Office?.context?.mailbox?.item;
     if (item) return item;
     await delay(200);
@@ -135,23 +135,35 @@ async function getAppointmentContextOnce(onPhase, attempt) {
   onPhase?.("office_library", attempt);
   await ensureOfficeJs();
 
-  onPhase?.("outlook_initialization", attempt);
-  await withTimeout(
-    globalThis.Office.onReady(),
-    OFFICE_READY_TIMEOUT_MS,
-    "Outlook n’a pas terminé l’initialisation du complément.",
-    "OUTLOOK_READY_TIMEOUT",
-  );
+  let item = globalThis.Office?.context?.mailbox?.item;
+  if (item) {
+    onPhase?.("outlook_context_direct", attempt);
+  } else {
+    onPhase?.("outlook_initialization", attempt);
+    const itemAvailable = waitForAppointmentItem(OFFICE_READY_TIMEOUT_MS);
+    await withTimeout(
+      Promise.race([
+        globalThis.Office.onReady(),
+        itemAvailable.then(() => undefined),
+      ]),
+      OFFICE_READY_TIMEOUT_MS,
+      "Outlook n’a pas terminé l’initialisation du complément.",
+      "OUTLOOK_READY_TIMEOUT",
+    );
+    item = globalThis.Office?.context?.mailbox?.item;
+    if (!item) {
+      onPhase?.("outlook_item", attempt);
+      item = await itemAvailable;
+    }
+  }
 
-  if (Office.context.host !== Office.HostType.Outlook) {
+  const host = Office.context?.host;
+  if (host && host !== Office.HostType.Outlook) {
     throw outlookError(
       "Ce formulaire doit être ouvert depuis Outlook.",
       "OUTLOOK_WRONG_HOST",
     );
   }
-
-  onPhase?.("outlook_item", attempt);
-  const item = await waitForAppointmentItem();
 
   onPhase?.("outlook_fields", attempt);
   const [subject, start, end, location] = await Promise.all([

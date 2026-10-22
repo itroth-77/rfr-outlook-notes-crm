@@ -32,6 +32,7 @@ const PHASE_LABELS = {
   configuration: "Lecture de la configuration",
   office_library: "Chargement de la bibliothèque Office",
   outlook_initialization: "Initialisation d’Outlook",
+  outlook_context_direct: "Contexte du rendez-vous déjà disponible",
   outlook_item: "Accès au rendez-vous Outlook",
   outlook_fields: "Lecture du rendez-vous Outlook",
   authentication: "Connexion Microsoft",
