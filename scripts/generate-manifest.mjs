@@ -22,6 +22,11 @@ function readEnvFile() {
 }
 
 const localEnv = readEnvFile();
+const packageMetadata = JSON.parse(
+  fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"),
+);
+const appVersion = packageMetadata.version;
+const manifestVersion = `${appVersion}.0`;
 const appUrl = (process.env.APP_URL || localEnv.APP_URL || "").replace(/\/$/, "");
 const dataverseUrl = (
   process.env.VITE_DATAVERSE_URL ||
@@ -40,6 +45,8 @@ const appOrigin = new URL(appUrl).origin;
 
 const template = fs.readFileSync(path.join(projectRoot, "manifest.template.xml"), "utf8");
 const manifest = template
+  .replaceAll("{{APP_VERSION}}", appVersion)
+  .replaceAll("{{MANIFEST_VERSION}}", manifestVersion)
   .replaceAll("{{APP_URL}}", appUrl)
   .replaceAll("{{APP_ORIGIN}}", appOrigin)
   .replaceAll("{{DATAVERSE_URL}}", dataverseUrl);

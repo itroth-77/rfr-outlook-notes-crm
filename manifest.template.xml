@@ -7,11 +7,11 @@
   xsi:type="MailApp">
 
   <Id>0a316d2c-0556-4628-9bb3-bdc1d4735cba</Id>
-  <Version>2.0.2.0</Version>
+  <Version>{{MANIFEST_VERSION}}</Version>
   <ProviderName>Roth France</ProviderName>
   <DefaultLocale>fr-FR</DefaultLocale>
-  <DisplayName DefaultValue="RFR Notes CRM" />
-  <Description DefaultValue="Ajoute un compte rendu au rendez-vous correspondant dans Dynamics 365." />
+  <DisplayName DefaultValue="RFR Notes CRM — v{{APP_VERSION}}" />
+  <Description DefaultValue="Version {{APP_VERSION}} — Ajoute un compte rendu au rendez-vous correspondant dans Dynamics 365." />
   <IconUrl DefaultValue="https://officedev.github.io/Office-Add-in-samples/Samples/hello-world/outlook-hello-world/assets/icon-32.png" />
   <HighResolutionIconUrl DefaultValue="https://officedev.github.io/Office-Add-in-samples/Samples/hello-world/outlook-hello-world/assets/icon-80.png" />
   <SupportUrl DefaultValue="{{APP_URL}}" />
