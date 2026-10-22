@@ -2,10 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildAppointmentQuery,
+  buildCurrentUserActivityPartyQuery,
   buildRegardingNotePayload,
   chooseUnambiguousCandidate,
   escapeODataString,
   extractQualificationOptions,
+  filterAppointmentsForCurrentUser,
   getRegardingReference,
   rankAppointmentCandidates,
 } from "../src/dataverse.js";
@@ -52,6 +54,45 @@ test("qualification metadata is converted to French sorted choices", () => {
     { value: 1, label: "Commercial" },
     { value: 2, label: "Divers" },
   ]);
+});
+
+test("activity party query only requests organizer and attendee roles", () => {
+  const query = decodeURIComponent(
+    buildCurrentUserActivityPartyQuery(
+      [
+        { activityid: "11111111-2222-3333-8444-555555555555" },
+        { activityid: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" },
+      ],
+      "99999999-8888-4777-8666-555555555555",
+      "sebastien.ribou@roth-france.fr",
+    ),
+  );
+
+  assert.match(query, /_partyid_value eq 99999999-8888-4777-8666-555555555555/);
+  assert.match(query, /addressused eq 'sebastien\.ribou@roth-france\.fr'/);
+  assert.match(query, /participationtypemask eq 5/);
+  assert.match(query, /participationtypemask eq 6/);
+  assert.match(query, /participationtypemask eq 7/);
+  assert.doesNotMatch(query, /participationtypemask eq 9/);
+});
+
+test("unrelated appointments are removed from the candidate list", () => {
+  const appointments = [
+    { activityid: "11111111-2222-3333-8444-555555555555", subject: "Visible" },
+    { activityid: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", subject: "Masqué" },
+  ];
+  const parties = [
+    {
+      _activityid_value: "11111111-2222-3333-8444-555555555555",
+      participationtypemask: 6,
+    },
+    {
+      _activityid_value: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      participationtypemask: 9,
+    },
+  ];
+
+  assert.deepEqual(filterAppointmentsForCurrentUser(appointments, parties), [appointments[0]]);
 });
 
 test("the Dataverse regarding lookup is read with its polymorphic type", () => {

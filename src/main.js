@@ -55,6 +55,86 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+const ALLOWED_NOTE_TAGS = new Set([
+  "A",
+  "B",
+  "BLOCKQUOTE",
+  "BR",
+  "DIV",
+  "EM",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "I",
+  "LI",
+  "OL",
+  "P",
+  "SPAN",
+  "STRONG",
+  "TABLE",
+  "TBODY",
+  "TD",
+  "TH",
+  "THEAD",
+  "TR",
+  "U",
+  "UL",
+]);
+const REMOVED_NOTE_TAGS = new Set([
+  "EMBED",
+  "FORM",
+  "IFRAME",
+  "IMG",
+  "INPUT",
+  "LINK",
+  "MATH",
+  "META",
+  "OBJECT",
+  "SCRIPT",
+  "STYLE",
+  "SVG",
+]);
+
+function renderSafeNoteHtml(value) {
+  const source = String(value || "");
+  if (!/<[a-z][\s\S]*>/i.test(source)) {
+    return escapeHtml(source).replaceAll("\n", "<br>");
+  }
+
+  const template = document.createElement("template");
+  template.innerHTML = source;
+
+  for (const element of template.content.querySelectorAll("*")) {
+    if (REMOVED_NOTE_TAGS.has(element.tagName)) {
+      element.remove();
+      continue;
+    }
+    if (!ALLOWED_NOTE_TAGS.has(element.tagName)) {
+      element.replaceWith(...element.childNodes);
+      continue;
+    }
+
+    for (const attribute of element.getAttributeNames()) {
+      if (element.tagName !== "A" || attribute.toLowerCase() !== "href") {
+        element.removeAttribute(attribute);
+      }
+    }
+
+    if (element.tagName === "A") {
+      const href = element.getAttribute("href") || "";
+      if (!/^(https?:|mailto:|tel:)/i.test(href)) {
+        element.removeAttribute("href");
+      } else {
+        element.setAttribute("target", "_blank");
+        element.setAttribute("rel", "noopener noreferrer");
+      }
+    }
+  }
+
+  return template.innerHTML;
+}
+
 function formatDate(date) {
   return new Intl.DateTimeFormat("fr-FR", {
     weekday: "short",
@@ -386,7 +466,7 @@ async function refreshNotes() {
           <article class="note-item">
             <h3>${escapeHtml(note.subject || "Note")}</h3>
             <time>${escapeHtml(formatDate(note.createdon))}</time>
-            <p>${escapeHtml(note.notetext || "").replaceAll("\n", "<br>")}</p>
+            <div class="note-content">${renderSafeNoteHtml(note.notetext)}</div>
           </article>`,
       )
       .join("");

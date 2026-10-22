@@ -196,6 +196,7 @@ async function getAppointmentContextOnce(onPhase, attempt) {
     location: String(location || ""),
     organizerName: item.organizer?.displayName || "",
     organizerEmail: item.organizer?.emailAddress || "",
+    mailboxEmail: Office.context?.mailbox?.userProfile?.emailAddress || "",
   };
 }
 

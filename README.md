@@ -89,6 +89,11 @@ d’enregistrement soit activé.
 
 Ce choix évite d’attacher silencieusement une note au mauvais client.
 
+Depuis la version 2.1.1, la liste est également limitée aux rendez-vous pour
+lesquels l’utilisateur Dataverse connecté est organisateur, participant
+obligatoire ou participant facultatif. Les rendez-vous des autres utilisateurs
+ne sont ni proposés ni présélectionnés.
+
 ## Champs CRM
 
 À partir de la version 2.1.0, le panneau affiche la qualification du rendez-vous
@@ -96,6 +101,10 @@ CRM sélectionné et permet de la modifier. Les choix ne sont pas codés en dur 
 ils sont lus dans les métadonnées Dataverse du champ
 `appointment.rfr_os_appointmentqualification`, puis la valeur est enregistrée
 sur le rendez-vous avec les droits de l’utilisateur connecté.
+
+Les notes de chronologie enregistrées en HTML par Dynamics sont rendues comme
+du contenu mis en forme après suppression des balises, attributs et URL
+potentiellement dangereux.
 
 ## Diagnostic mobile
 

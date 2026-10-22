@@ -155,7 +155,15 @@ input:focus, select:focus, textarea:focus {
 .note-item { padding: 14px 0; border-top: 1px solid #eaecf0; }
 .note-item:first-child { padding-top: 0; border-top: 0; }
 .note-item time { display: block; margin-top: 4px; color: #667085; font-size: 14px; }
-.note-item p { margin: 10px 0 0; font-size: 17px; line-height: 1.45; }
+.note-content { margin-top: 10px; font-size: 17px; line-height: 1.45; overflow-wrap: anywhere; }
+.note-content > :first-child { margin-top: 0; }
+.note-content > :last-child { margin-bottom: 0; }
+.note-content p, .note-content ul, .note-content ol, .note-content blockquote {
+  margin: 8px 0;
+}
+.note-content table { width: 100%; border-collapse: collapse; }
+.note-content th, .note-content td { padding: 6px; border: 1px solid #dce3ee; }
+.note-content a { color: #174ea6; }
 
 .error-card { margin-top: 30px; border-color: #fecdca; }
 .error-card h1 { color: #b42318; }

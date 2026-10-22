@@ -2,6 +2,7 @@ import { withTimeout } from "./resilience.js";
 
 const API_PATH = "/api/data/v9.2";
 const DATAVERSE_TIMEOUT_MS = 20_000;
+const APPOINTMENT_PARTICIPATION_TYPES = new Set([5, 6, 7]);
 export const APPOINTMENT_QUALIFICATION_FIELD = "rfr_os_appointmentqualification";
 
 export function escapeODataString(value) {
@@ -90,9 +91,73 @@ async function dataverseFetch(config, token, path, options = {}) {
   return response.json();
 }
 
+function normalizeGuid(value) {
+  const guid = String(value || "").replace(/[{}]/g, "").toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+    guid,
+  )
+    ? guid
+    : "";
+}
+
+export function buildCurrentUserActivityPartyQuery(appointments, userId, userEmail = "") {
+  const normalizedUserId = normalizeGuid(userId);
+  const normalizedEmail = String(userEmail || "").trim();
+  const appointmentIds = appointments
+    .map((appointment) => normalizeGuid(appointment.activityid))
+    .filter(Boolean);
+
+  if ((!normalizedUserId && !normalizedEmail) || !appointmentIds.length) return "";
+
+  const appointmentFilter = appointmentIds
+    .map((id) => `_activityid_value eq ${id}`)
+    .join(" or ");
+  const roleFilter = [...APPOINTMENT_PARTICIPATION_TYPES]
+    .map((role) => `participationtypemask eq ${role}`)
+    .join(" or ");
+  const userFilter = [
+    normalizedUserId ? `_partyid_value eq ${normalizedUserId}` : "",
+    normalizedEmail ? `addressused eq '${escapeODataString(normalizedEmail)}'` : "",
+  ]
+    .filter(Boolean)
+    .join(" or ");
+  const filter = `(${userFilter}) and (${appointmentFilter}) and (${roleFilter})`;
+
+  return `/activityparties?$select=_activityid_value,participationtypemask&$filter=${encodeURIComponent(filter)}&$top=100`;
+}
+
+export function filterAppointmentsForCurrentUser(appointments, activityParties) {
+  const allowedAppointmentIds = new Set(
+    activityParties
+      .filter((party) => APPOINTMENT_PARTICIPATION_TYPES.has(Number(party.participationtypemask)))
+      .map((party) => normalizeGuid(party._activityid_value))
+      .filter(Boolean),
+  );
+  return appointments.filter((appointment) =>
+    allowedAppointmentIds.has(normalizeGuid(appointment.activityid)),
+  );
+}
+
 export async function findAppointmentCandidates(config, token, context) {
   const result = await dataverseFetch(config, token, buildAppointmentQuery(context));
-  return rankAppointmentCandidates(result.value || [], context);
+  const appointments = result.value || [];
+  if (!appointments.length) return [];
+
+  const identity = await dataverseFetch(config, token, "/WhoAmI");
+  const activityPartyQuery = buildCurrentUserActivityPartyQuery(
+    appointments,
+    identity?.UserId,
+    context.mailboxEmail,
+  );
+  if (!activityPartyQuery) {
+    throw new Error("Impossible d’identifier l’utilisateur CRM connecté.");
+  }
+  const activityParties = await dataverseFetch(config, token, activityPartyQuery);
+  const visibleAppointments = filterAppointmentsForCurrentUser(
+    appointments,
+    activityParties.value || [],
+  );
+  return rankAppointmentCandidates(visibleAppointments, context);
 }
 
 function choiceLabel(option, languageCode) {
