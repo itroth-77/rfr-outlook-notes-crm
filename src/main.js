@@ -1,4 +1,5 @@
 import "./styles.css";
+import packageMetadata from "../package.json";
 import { getConfig } from "./config.js";
 import { getDataverseAccessToken } from "./auth.js";
 import {
@@ -48,13 +49,20 @@ function showFatalError(error) {
 }
 
 function renderShell() {
+  const environmentLabel = config.dataverseUrl.toLowerCase() === "https://roth.crm4.dynamics.com"
+    ? "Production"
+    : "Test";
+
   app.innerHTML = `
     <header class="app-header">
       <div>
         <p class="eyebrow">RENDEZ-VOUS CRM</p>
         <h1>${escapeHtml(context.subject)}</h1>
       </div>
-      <span class="status-chip" id="connectionStatus">Connexion…</span>
+      <div class="header-status">
+        <span class="version-chip">v${escapeHtml(packageMetadata.version)} · ${escapeHtml(environmentLabel)}</span>
+        <span class="status-chip" id="connectionStatus">Connexion…</span>
+      </div>
     </header>
 
     <section class="card appointment-summary">
