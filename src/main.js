@@ -1,7 +1,7 @@
 import "./styles.css";
 import packageMetadata from "../package.json";
 import { getConfig } from "./config.js";
-import { getDataverseAccessToken } from "./auth.js";
+import { getDataverseAccessToken, getGraphAccessToken } from "./auth.js";
 import {
   beginStartupDiagnostic,
   clearInterruptedStartupDiagnostic,
@@ -19,9 +19,13 @@ import {
   getRegardingNotes,
   getRegardingReference,
   getRegardingLabel,
+  searchRegardingRecords,
   updateAppointmentQualification,
+  updateAppointmentRegarding,
 } from "./dataverse.js";
+import { TRACKED_TO_DYNAMICS_CATEGORY, trackOutlookAppointment } from "./graph.js";
 import { getAppointmentContext, markAppointmentAsLogged } from "./outlook.js";
+import { delay } from "./resilience.js";
 
 const app = document.querySelector("#app");
 let config;
@@ -30,6 +34,7 @@ let accessToken;
 let candidates = [];
 let selectedAppointment = null;
 let qualificationOptions = null;
+let regardingSearchResults = [];
 let interruptedDiagnostic = null;
 
 const PHASE_LABELS = {
@@ -227,10 +232,10 @@ function renderShell() {
     <section class="card" id="matchCard">
       <h2>Rendez-vous correspondant dans le CRM</h2>
       <p id="matchStatus" class="muted">Recherche en cours…</p>
-      <label id="candidateLabel" class="field hidden">
-        <span>Choisir le rendez-vous</span>
-        <select id="candidateSelect"></select>
-      </label>
+      <button id="trackAppointmentButton" class="primary-button hidden" type="button">
+        Activer « ${TRACKED_TO_DYNAMICS_CATEGORY} »
+      </button>
+      <p id="trackingStatus" class="status-message" role="status"></p>
     </section>
 
     <section class="card" id="crmFieldsCard">
@@ -245,6 +250,33 @@ function renderShell() {
         Mettre à jour la qualification
       </button>
       <p id="crmFieldsStatus" class="status-message" role="status"></p>
+
+      <div class="field-separator"></div>
+      <h3>Concernant</h3>
+      <p id="currentRegardingStatus" class="muted">Aucun rendez-vous CRM sélectionné.</p>
+      <label class="field">
+        <span>Type</span>
+        <select id="regardingTypeSelect" disabled>
+          <option value="account">Compte</option>
+          <option value="contact">Contact</option>
+          <option value="opportunity">Opportunité</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Rechercher</span>
+        <input id="regardingSearchText" placeholder="Nom ou adresse e-mail" disabled />
+      </label>
+      <button id="searchRegardingButton" class="secondary-button" type="button" disabled>
+        Rechercher dans le CRM
+      </button>
+      <label id="regardingResultsLabel" class="field hidden">
+        <span>Résultat</span>
+        <select id="regardingResultSelect"></select>
+      </label>
+      <button id="saveRegardingButton" class="primary-button" type="button" disabled>
+        Affecter ce Concernant
+      </button>
+      <p id="regardingStatus" class="status-message" role="status"></p>
     </section>
 
     <section class="card" id="noteCard">
@@ -267,16 +299,21 @@ function renderShell() {
       <div id="notesList"><p class="muted">Sélectionnez d’abord un rendez-vous CRM.</p></div>
     </section>`;
 
-  document.querySelector("#candidateSelect").addEventListener("change", async (event) => {
-    selectedAppointment = candidates.find((candidate) => candidate.activityid === event.target.value) || null;
-    updateSelectedAppointment();
-    if (selectedAppointment) await Promise.all([refreshCrmFields(), refreshNotes()]);
-  });
+  document.querySelector("#trackAppointmentButton").addEventListener("click", trackAndWaitForAppointment);
   document.querySelector("#qualificationSelect").addEventListener("change", (event) => {
     document.querySelector("#saveCrmFieldsButton").disabled =
       !selectedAppointment || event.target.value === "";
   });
   document.querySelector("#saveCrmFieldsButton").addEventListener("click", saveCrmFields);
+  document.querySelector("#regardingTypeSelect").addEventListener("change", () => resetRegardingSearch());
+  document.querySelector("#regardingSearchText").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") searchRegarding();
+  });
+  document.querySelector("#searchRegardingButton").addEventListener("click", searchRegarding);
+  document.querySelector("#regardingResultSelect").addEventListener("change", (event) => {
+    document.querySelector("#saveRegardingButton").disabled = !selectedAppointment || !event.target.value;
+  });
+  document.querySelector("#saveRegardingButton").addEventListener("click", saveRegarding);
   document.querySelector("#saveButton").addEventListener("click", saveNote);
   if (interruptedDiagnostic) clearInterruptedStartupDiagnostic();
 }
@@ -288,38 +325,184 @@ function candidateText(candidate) {
 
 function renderCandidates() {
   const status = document.querySelector("#matchStatus");
-  const label = document.querySelector("#candidateLabel");
-  const select = document.querySelector("#candidateSelect");
+  const trackButton = document.querySelector("#trackAppointmentButton");
   selectedAppointment = chooseUnambiguousCandidate(candidates);
-
-  if (!candidates.length) {
-    status.textContent = "Aucun rendez-vous CRM trouvé autour de cet horaire. La note ne peut pas être enregistrée.";
-    status.className = "warning";
-    label.classList.add("hidden");
-    updateSelectedAppointment();
-    return;
-  }
-
-  select.innerHTML = [
-    `<option value="">— Choisir —</option>`,
-    ...candidates.map(
-      (candidate) =>
-        `<option value="${escapeHtml(candidate.activityid)}">${escapeHtml(candidateText(candidate))}</option>`,
-    ),
-  ].join("");
+  const strongCandidates = candidates.filter((candidate) => candidate.matchScore >= 85);
 
   if (selectedAppointment) {
-    select.value = selectedAppointment.activityid;
     status.textContent = `Correspondance fiable : ${candidateText(selectedAppointment)}`;
     status.className = "success";
-    label.classList.toggle("hidden", candidates.length === 1);
-  } else {
-    status.textContent = "Plusieurs rendez-vous sont possibles. Choisissez le bon avant d’enregistrer.";
+    trackButton.classList.add("hidden");
+  } else if (strongCandidates.length > 1) {
+    status.textContent =
+      "Plusieurs copies CRM ont exactement le même sujet et les mêmes horaires. " +
+      "Aucune n’est sélectionnée : les doublons doivent être corrigés dans le CRM.";
     status.className = "warning";
-    label.classList.remove("hidden");
+    trackButton.classList.add("hidden");
+  } else {
+    status.textContent =
+      "Aucun rendez-vous CRM ne correspond exactement au sujet et aux horaires Outlook.";
+    status.className = "warning";
+    trackButton.classList.remove("hidden");
   }
 
   updateSelectedAppointment();
+}
+
+async function trackAndWaitForAppointment() {
+  const button = document.querySelector("#trackAppointmentButton");
+  const status = document.querySelector("#trackingStatus");
+  button.disabled = true;
+  status.textContent = "Connexion au calendrier Outlook…";
+  status.className = "status-message muted";
+
+  try {
+    const graphToken = await getGraphAccessToken(config);
+    const tracking = await trackOutlookAppointment(graphToken, context);
+    status.textContent = tracking.alreadyTracked
+      ? `La catégorie « ${TRACKED_TO_DYNAMICS_CATEGORY} » est déjà active. Attente de la synchronisation CRM…`
+      : `Catégorie « ${TRACKED_TO_DYNAMICS_CATEGORY} » activée. Attente de la synchronisation CRM…`;
+    status.className = "status-message success";
+
+    for (let attempt = 1; attempt <= 12; attempt += 1) {
+      candidates = await findAppointmentCandidates(config, accessToken, context);
+      if (chooseUnambiguousCandidate(candidates)) {
+        renderCandidates();
+        status.textContent = "Le rendez-vous est maintenant disponible dans le CRM.";
+        status.className = "status-message success";
+        await Promise.all([refreshCrmFields(), refreshNotes()]);
+        return;
+      }
+
+      status.textContent =
+        `Synchronisation CRM en cours — vérification ${attempt}/12. ` +
+        "La synchronisation serveur peut prendre jusqu’à environ 15 minutes.";
+      status.className = "status-message muted";
+      if (attempt < 12) await delay(10_000);
+    }
+
+    status.textContent =
+      "La catégorie est active, mais le CRM n’a pas encore terminé la synchronisation. " +
+      "Vous pouvez fermer puis rouvrir ce panneau plus tard, ou relancer la recherche.";
+    status.className = "status-message warning";
+    button.textContent = "Rechercher à nouveau dans le CRM";
+  } catch (error) {
+    console.error(error);
+    status.textContent =
+      `${error.message} L’autorisation Microsoft Graph Calendars.ReadWrite peut devoir être accordée par un administrateur.`;
+    status.className = "status-message warning";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function resetRegardingSearch(clearText = true) {
+  regardingSearchResults = [];
+  const text = document.querySelector("#regardingSearchText");
+  const result = document.querySelector("#regardingResultSelect");
+  const label = document.querySelector("#regardingResultsLabel");
+  const button = document.querySelector("#saveRegardingButton");
+  if (clearText && text) text.value = "";
+  if (result) result.innerHTML = "";
+  label?.classList.add("hidden");
+  if (button) button.disabled = true;
+  const status = document.querySelector("#regardingStatus");
+  if (status) status.textContent = "";
+}
+
+async function searchRegarding() {
+  const logicalName = document.querySelector("#regardingTypeSelect").value;
+  const searchText = document.querySelector("#regardingSearchText").value.trim();
+  const searchButton = document.querySelector("#searchRegardingButton");
+  const resultSelect = document.querySelector("#regardingResultSelect");
+  const resultLabel = document.querySelector("#regardingResultsLabel");
+  const status = document.querySelector("#regardingStatus");
+
+  if (searchText.length < 2) {
+    status.textContent = "Saisissez au moins 2 caractères.";
+    status.className = "status-message warning";
+    return;
+  }
+
+  searchButton.disabled = true;
+  searchButton.textContent = "Recherche…";
+  status.textContent = "";
+  resultLabel.classList.add("hidden");
+  document.querySelector("#saveRegardingButton").disabled = true;
+
+  try {
+    regardingSearchResults = await searchRegardingRecords(
+      config,
+      accessToken,
+      logicalName,
+      searchText,
+    );
+    if (!regardingSearchResults.length) {
+      status.textContent = "Aucun résultat trouvé.";
+      status.className = "status-message warning";
+      return;
+    }
+
+    resultSelect.innerHTML = '<option value="">— Sélectionner —</option>';
+    for (const record of regardingSearchResults) {
+      const option = document.createElement("option");
+      option.value = record.id;
+      option.textContent = record.detail ? `${record.label} — ${record.detail}` : record.label;
+      resultSelect.append(option);
+    }
+    resultLabel.classList.remove("hidden");
+    status.textContent = `${regardingSearchResults.length} résultat(s).`;
+    status.className = "status-message muted";
+  } catch (error) {
+    console.error(error);
+    status.textContent = error.message || "La recherche a échoué.";
+    status.className = "status-message warning";
+  } finally {
+    searchButton.disabled = !selectedAppointment;
+    searchButton.textContent = "Rechercher dans le CRM";
+  }
+}
+
+async function saveRegarding() {
+  const resultSelect = document.querySelector("#regardingResultSelect");
+  const button = document.querySelector("#saveRegardingButton");
+  const status = document.querySelector("#regardingStatus");
+  const regarding = regardingSearchResults.find((record) => record.id === resultSelect.value);
+
+  if (!selectedAppointment || !regarding) {
+    status.textContent = "Sélectionnez un résultat.";
+    status.className = "status-message warning";
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "Mise à jour…";
+  status.textContent = "";
+
+  try {
+    const updatedAppointment = await updateAppointmentRegarding(
+      config,
+      accessToken,
+      selectedAppointment.activityid,
+      regarding,
+    );
+    Object.assign(selectedAppointment, updatedAppointment || {}, {
+      _regardingobjectid_value: regarding.id,
+      "_regardingobjectid_value@Microsoft.Dynamics.CRM.lookuplogicalname":
+        regarding.logicalName,
+      "_regardingobjectid_value@OData.Community.Display.V1.FormattedValue": regarding.label,
+    });
+    updateSelectedAppointment();
+    status.textContent = `Concernant mis à jour : ${regarding.label}.`;
+    status.className = "status-message success";
+    await refreshNotes();
+  } catch (error) {
+    console.error(error);
+    status.textContent = error.message || "La mise à jour du Concernant a échoué.";
+    status.className = "status-message warning";
+  } finally {
+    button.textContent = "Affecter ce Concernant";
+  }
 }
 
 function updateSelectedAppointment() {
@@ -328,7 +511,30 @@ function updateSelectedAppointment() {
   document.querySelector("#noteSubject").disabled = !noteEnabled;
   document.querySelector("#noteText").disabled = !noteEnabled;
   document.querySelector("#saveButton").disabled = !noteEnabled;
-  document.querySelector("#saveCrmFieldsButton").disabled = true;
+  document.querySelector("#saveCrmFieldsButton").disabled =
+    !selectedAppointment || document.querySelector("#qualificationSelect").value === "";
+  const regardingTypeSelect = document.querySelector("#regardingTypeSelect");
+  const regardingSearchText = document.querySelector("#regardingSearchText");
+  const searchRegardingButton = document.querySelector("#searchRegardingButton");
+  regardingTypeSelect.disabled = !selectedAppointment;
+  regardingSearchText.disabled = !selectedAppointment;
+  searchRegardingButton.disabled = !selectedAppointment;
+
+  const currentRegardingStatus = document.querySelector("#currentRegardingStatus");
+  if (regarding) {
+    currentRegardingStatus.textContent = `Actuel : ${regarding.label}`;
+    currentRegardingStatus.className = "success";
+    if (["account", "contact", "opportunity"].includes(regarding.logicalName)) {
+      regardingTypeSelect.value = regarding.logicalName;
+    }
+  } else if (selectedAppointment) {
+    currentRegardingStatus.textContent = "Aucun Concernant — renseignez-en un pour activer les notes.";
+    currentRegardingStatus.className = "warning";
+  } else {
+    currentRegardingStatus.textContent = "Aucun rendez-vous CRM sélectionné.";
+    currentRegardingStatus.className = "muted";
+  }
+  resetRegardingSearch(false);
 
   const noteTarget = document.querySelector("#noteTarget");
   if (regarding) {

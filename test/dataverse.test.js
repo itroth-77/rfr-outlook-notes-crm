@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildAppointmentQuery,
+  buildAppointmentRegardingPayload,
   buildCurrentUserActivityPartyQuery,
   buildRegardingNotePayload,
   chooseUnambiguousCandidate,
@@ -128,6 +129,29 @@ test("a note is bound to the regarding record instead of the appointment", () =>
   assert.equal("objectid_appointment@odata.bind" in payload, false);
 });
 
+test("the appointment regarding payload uses the correct polymorphic relationship", () => {
+  assert.deepEqual(
+    buildAppointmentRegardingPayload(
+      "account",
+      "11111111-2222-4333-8444-555555555555",
+    ),
+    {
+      "regardingobjectid_account_appointment@odata.bind":
+        "/accounts(11111111-2222-4333-8444-555555555555)",
+    },
+  );
+  assert.deepEqual(
+    buildAppointmentRegardingPayload(
+      "contact",
+      "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    ),
+    {
+      "regardingobjectid_contact_appointment@odata.bind":
+        "/contacts(aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee)",
+    },
+  );
+});
+
 test("an exact subject and exact times are selected automatically", () => {
   const context = {
     subject: "Visite client",
@@ -154,7 +178,7 @@ test("an exact subject and exact times are selected automatically", () => {
   assert.equal(chooseUnambiguousCandidate(ranked)?.activityid, "a");
 });
 
-test("two equally strong matches require an explicit choice", () => {
+test("two equally strong CRM matches remain unselected", () => {
   const context = {
     subject: "Visite client",
     start: new Date("2026-10-22T10:00:00.000Z"),

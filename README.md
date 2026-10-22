@@ -18,9 +18,11 @@ rendez-vous n’a aucun Concernant, la saisie et l’enregistrement sont désact
 
 1. Une inscription d’application **SPA** dans Microsoft Entra.
 2. L’autorisation déléguée Dynamics CRM `user_impersonation`.
-3. Une URI de redirection SPA NAA : `brk-multihub://DOMAINE-DE-L-APPLICATION`.
-4. Un hébergement HTTPS accessible depuis le XCover.
-5. Les utilisateurs doivent pouvoir lire et modifier les rendez-vous, lire les
+3. L’autorisation déléguée Microsoft Graph `Calendars.ReadWrite`, nécessaire
+   pour activer le suivi d’un rendez-vous Outlook encore absent du CRM.
+4. Une URI de redirection SPA NAA : `brk-multihub://DOMAINE-DE-L-APPLICATION`.
+5. Un hébergement HTTPS accessible depuis le XCover.
+6. Les utilisateurs doivent pouvoir lire et modifier les rendez-vous, lire les
    métadonnées et créer des notes sur les dossiers Concernant dans Dataverse.
 
 ## Préparer les paramètres
@@ -94,6 +96,14 @@ lesquels l’utilisateur Dataverse connecté est organisateur, participant
 obligatoire ou participant facultatif. Les rendez-vous des autres utilisateurs
 ne sont ni proposés ni présélectionnés.
 
+À partir de la version 2.2.0, aucun choix manuel entre plusieurs rendez-vous
+n’est proposé. Le sujet et les horaires doivent fournir une correspondance
+forte et unique. Lorsqu’aucune correspondance n’existe, le panneau peut ajouter
+la catégorie Outlook `Tracked To Dynamics 365` avec Microsoft Graph, puis
+recherche automatiquement le rendez-vous dans Dataverse pendant deux minutes.
+La synchronisation serveur Dynamics restant asynchrone, elle peut prendre
+jusqu’à environ quinze minutes ; le panneau peut alors être rouvert plus tard.
+
 ## Champs CRM
 
 À partir de la version 2.1.0, le panneau affiche la qualification du rendez-vous
@@ -101,6 +111,10 @@ CRM sélectionné et permet de la modifier. Les choix ne sont pas codés en dur 
 ils sont lus dans les métadonnées Dataverse du champ
 `appointment.rfr_os_appointmentqualification`, puis la valeur est enregistrée
 sur le rendez-vous avec les droits de l’utilisateur connecté.
+
+Le Concernant peut être affecté ou remplacé depuis le panneau après une
+recherche parmi les comptes, contacts ou opportunités actifs. La création de
+note reste désactivée tant qu’aucun Concernant n’est enregistré.
 
 Les notes de chronologie enregistrées en HTML par Dynamics sont rendues comme
 du contenu mis en forme après suppression des balises, attributs et URL

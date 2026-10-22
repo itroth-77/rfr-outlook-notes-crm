@@ -4,6 +4,29 @@ const API_PATH = "/api/data/v9.2";
 const DATAVERSE_TIMEOUT_MS = 20_000;
 const APPOINTMENT_PARTICIPATION_TYPES = new Set([5, 6, 7]);
 export const APPOINTMENT_QUALIFICATION_FIELD = "rfr_os_appointmentqualification";
+const REGARDING_TYPES = {
+  account: {
+    entitySet: "accounts",
+    idField: "accountid",
+    nameField: "name",
+    detailField: "accountnumber",
+    navigationProperty: "regardingobjectid_account_appointment",
+  },
+  contact: {
+    entitySet: "contacts",
+    idField: "contactid",
+    nameField: "fullname",
+    detailField: "emailaddress1",
+    navigationProperty: "regardingobjectid_contact_appointment",
+  },
+  opportunity: {
+    entitySet: "opportunities",
+    idField: "opportunityid",
+    nameField: "name",
+    detailField: "",
+    navigationProperty: "regardingobjectid_opportunity_appointment",
+  },
+};
 
 export function escapeODataString(value) {
   return String(value ?? "").replaceAll("'", "''");
@@ -206,6 +229,52 @@ export async function updateAppointmentQualification(
     body: JSON.stringify({
       [APPOINTMENT_QUALIFICATION_FIELD]: Number(qualificationValue),
     }),
+  });
+}
+
+export async function searchRegardingRecords(config, token, logicalName, searchText) {
+  const type = REGARDING_TYPES[logicalName];
+  const text = String(searchText || "").trim();
+  if (!type) throw new Error("Le type de Concernant n’est pas pris en charge.");
+  if (text.length < 2) throw new Error("Saisissez au moins 2 caractères.");
+
+  const escapedText = escapeODataString(text);
+  const searchFields = [type.nameField, type.detailField].filter(Boolean);
+  const textFilter = searchFields
+    .map((field) => `contains(${field},'${escapedText}')`)
+    .join(" or ");
+  const select = [type.idField, type.nameField, type.detailField].filter(Boolean).join(",");
+  const filter = encodeURIComponent(`statecode eq 0 and (${textFilter})`);
+  const path = `/${type.entitySet}?$select=${select}&$filter=${filter}&$orderby=${type.nameField} asc&$top=25`;
+  const result = await dataverseFetch(config, token, path);
+
+  return (result.value || []).map((record) => ({
+    id: record[type.idField],
+    logicalName,
+    label: record[type.nameField] || "Sans nom",
+    detail: type.detailField ? record[type.detailField] || "" : "",
+  }));
+}
+
+export function buildAppointmentRegardingPayload(logicalName, recordId) {
+  const type = REGARDING_TYPES[logicalName];
+  const id = normalizeGuid(recordId);
+  if (!type || !id) throw new Error("Le Concernant sélectionné n’est pas valide.");
+  return {
+    [`${type.navigationProperty}@odata.bind`]: `/${type.entitySet}(${id})`,
+  };
+}
+
+export async function updateAppointmentRegarding(config, token, appointmentId, regarding) {
+  const id = normalizeGuid(appointmentId);
+  if (!id) throw new Error("L’identifiant du rendez-vous CRM n’est pas valide.");
+  return dataverseFetch(config, token, `/appointments(${id})`, {
+    method: "PATCH",
+    headers: {
+      Prefer:
+        'return=representation,odata.include-annotations="OData.Community.Display.V1.FormattedValue,Microsoft.Dynamics.CRM.lookuplogicalname"',
+    },
+    body: JSON.stringify(buildAppointmentRegardingPayload(regarding.logicalName, regarding.id)),
   });
 }
 

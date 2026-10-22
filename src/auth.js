@@ -32,12 +32,10 @@ export async function initializeAuthentication(config) {
   }
 }
 
-export async function getDataverseAccessToken(config) {
+async function acquireAccessToken(config, scopes) {
   await initializeAuthentication(config);
 
-  const request = {
-    scopes: [`${config.dataverseUrl}/user_impersonation`],
-  };
+  const request = { scopes };
 
   try {
     const response = await withTimeout(
@@ -55,4 +53,12 @@ export async function getDataverseAccessToken(config) {
     const response = await msalInstance.acquireTokenPopup(request);
     return response.accessToken;
   }
+}
+
+export function getDataverseAccessToken(config) {
+  return acquireAccessToken(config, [`${config.dataverseUrl}/user_impersonation`]);
+}
+
+export function getGraphAccessToken(config) {
+  return acquireAccessToken(config, ["Calendars.ReadWrite"]);
 }

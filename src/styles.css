@@ -146,6 +146,21 @@ input:focus, select:focus, textarea:focus {
 
 #crmFieldsCard .primary-button { margin-top: 14px; }
 
+.secondary-button {
+  width: 100%;
+  min-height: 54px;
+  margin-top: 12px;
+  padding: 11px 16px;
+  border: 2px solid #3860b2;
+  border-radius: 10px;
+  background: #fff;
+  color: #174ea6;
+  font-size: 18px;
+  font-weight: 800;
+}
+.secondary-button:disabled { border-color: #b9c3d5; color: #98a2b3; }
+.field-separator { margin: 22px 0 18px; border-top: 1px solid #dce3ee; }
+
 .muted, .hint { color: #667085; font-size: 16px; }
 .success { color: #067647; font-weight: 700; }
 .warning { color: #b54708; font-weight: 700; }
