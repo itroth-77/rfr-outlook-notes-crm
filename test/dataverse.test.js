@@ -2,8 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildAppointmentQuery,
+  buildRegardingNotePayload,
   chooseUnambiguousCandidate,
   escapeODataString,
+  extractQualificationOptions,
+  getRegardingReference,
   rankAppointmentCandidates,
 } from "../src/dataverse.js";
 
@@ -17,6 +20,71 @@ test("buildAppointmentQuery creates a 30-minute UTC window", () => {
   assert.match(decoded, /2026-10-22T09:45:00.000Z/);
   assert.match(decoded, /2026-10-22T10:15:00.000Z/);
   assert.match(decoded, /\$top=20/);
+  assert.match(decoded, /rfr_os_appointmentqualification/);
+});
+
+test("qualification metadata is converted to French sorted choices", () => {
+  const options = extractQualificationOptions({
+    OptionSet: {
+      Options: [
+        {
+          Value: 2,
+          Label: {
+            UserLocalizedLabel: { Label: "Other" },
+            LocalizedLabels: [
+              { LanguageCode: 1033, Label: "Other" },
+              { LanguageCode: 1036, Label: "Divers" },
+            ],
+          },
+        },
+        {
+          Value: 1,
+          Label: {
+            UserLocalizedLabel: { Label: "Commercial" },
+            LocalizedLabels: [{ LanguageCode: 1036, Label: "Commercial" }],
+          },
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(options, [
+    { value: 1, label: "Commercial" },
+    { value: 2, label: "Divers" },
+  ]);
+});
+
+test("the Dataverse regarding lookup is read with its polymorphic type", () => {
+  const regarding = getRegardingReference({
+    _regardingobjectid_value: "{11111111-2222-3333-4444-555555555555}",
+    "_regardingobjectid_value@Microsoft.Dynamics.CRM.lookuplogicalname": "account",
+    "_regardingobjectid_value@OData.Community.Display.V1.FormattedValue": "ROTH FRANCE",
+  });
+
+  assert.deepEqual(regarding, {
+    id: "11111111-2222-3333-4444-555555555555",
+    logicalName: "account",
+    label: "ROTH FRANCE",
+  });
+});
+
+test("a note is bound to the regarding record instead of the appointment", () => {
+  const payload = buildRegardingNotePayload(
+    {
+      id: "11111111-2222-3333-4444-555555555555",
+      logicalName: "account",
+    },
+    "accounts",
+    { subject: "Compte rendu", text: "Décision prise" },
+  );
+
+  assert.deepEqual(payload, {
+    subject: "Compte rendu",
+    notetext: "Décision prise",
+    "objectid_account@odata.bind":
+      "/accounts(11111111-2222-3333-4444-555555555555)",
+  });
+  assert.equal("objectid_appointment@odata.bind" in payload, false);
 });
 
 test("an exact subject and exact times are selected automatically", () => {

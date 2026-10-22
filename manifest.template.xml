@@ -11,7 +11,7 @@
   <ProviderName>Roth France</ProviderName>
   <DefaultLocale>fr-FR</DefaultLocale>
   <DisplayName DefaultValue="RFR Notes CRM — v{{APP_VERSION}}" />
-  <Description DefaultValue="Version {{APP_VERSION}} — Ajoute un compte rendu au rendez-vous correspondant dans Dynamics 365." />
+  <Description DefaultValue="Version {{APP_VERSION}} — Met à jour la qualification du rendez-vous et ajoute un compte rendu sur son Concernant dans Dynamics 365." />
   <IconUrl DefaultValue="{{APP_URL}}/assets/icon-32.png" />
   <HighResolutionIconUrl DefaultValue="{{APP_URL}}/assets/icon-80.png" />
   <SupportUrl DefaultValue="{{APP_URL}}" />

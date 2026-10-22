@@ -2,7 +2,9 @@
 
 Ce projet remplace la page Microsoft « Say hello » par un formulaire mobile de
 compte rendu. Il utilise le compte Microsoft déjà ouvert dans Outlook et crée
-une **Note Dataverse (`annotation`)** reliée au rendez-vous CRM (`appointment`).
+une **Note Dataverse (`annotation`)** reliée au dossier indiqué par le champ
+**Concernant** du rendez-vous CRM (compte, contact, opportunité, etc.). Si le
+rendez-vous n’a aucun Concernant, la saisie et l’enregistrement sont désactivés.
 
 ## Sécurité
 
@@ -18,8 +20,8 @@ une **Note Dataverse (`annotation`)** reliée au rendez-vous CRM (`appointment`)
 2. L’autorisation déléguée Dynamics CRM `user_impersonation`.
 3. Une URI de redirection SPA NAA : `brk-multihub://DOMAINE-DE-L-APPLICATION`.
 4. Un hébergement HTTPS accessible depuis le XCover.
-5. Les utilisateurs doivent pouvoir lire les rendez-vous et créer des notes
-   dans Dataverse.
+5. Les utilisateurs doivent pouvoir lire et modifier les rendez-vous, lire les
+   métadonnées et créer des notes sur les dossiers Concernant dans Dataverse.
 
 ## Préparer les paramètres
 
@@ -86,6 +88,14 @@ l’utilisateur doit choisir explicitement le rendez-vous CRM avant que le bouto
 d’enregistrement soit activé.
 
 Ce choix évite d’attacher silencieusement une note au mauvais client.
+
+## Champs CRM
+
+À partir de la version 2.1.0, le panneau affiche la qualification du rendez-vous
+CRM sélectionné et permet de la modifier. Les choix ne sont pas codés en dur :
+ils sont lus dans les métadonnées Dataverse du champ
+`appointment.rfr_os_appointmentqualification`, puis la valeur est enregistrée
+sur le rendez-vous avec les droits de l’utilisateur connecté.
 
 ## Diagnostic mobile
 

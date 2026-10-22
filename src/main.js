@@ -11,11 +11,15 @@ import {
   recordStartupPhase,
 } from "./diagnostics.js";
 import {
+  APPOINTMENT_QUALIFICATION_FIELD,
   chooseUnambiguousCandidate,
-  createAppointmentNote,
+  createRegardingNote,
   findAppointmentCandidates,
-  getAppointmentNotes,
+  getAppointmentQualificationOptions,
+  getRegardingNotes,
+  getRegardingReference,
   getRegardingLabel,
+  updateAppointmentQualification,
 } from "./dataverse.js";
 import { getAppointmentContext, markAppointmentAsLogged } from "./outlook.js";
 
@@ -25,6 +29,7 @@ let context;
 let accessToken;
 let candidates = [];
 let selectedAppointment = null;
+let qualificationOptions = null;
 let interruptedDiagnostic = null;
 
 const PHASE_LABELS = {
@@ -148,15 +153,30 @@ function renderShell() {
       </label>
     </section>
 
+    <section class="card" id="crmFieldsCard">
+      <h2>Champs CRM</h2>
+      <label class="field">
+        <span>Qualification du RDV</span>
+        <select id="qualificationSelect" disabled>
+          <option value="">Sélectionnez d’abord un rendez-vous CRM</option>
+        </select>
+      </label>
+      <button id="saveCrmFieldsButton" class="primary-button" type="button" disabled>
+        Mettre à jour la qualification
+      </button>
+      <p id="crmFieldsStatus" class="status-message" role="status"></p>
+    </section>
+
     <section class="card" id="noteCard">
       <h2>Ajouter une note</h2>
+      <p id="noteTarget" class="muted">Sélectionnez d’abord un rendez-vous CRM.</p>
       <label class="field">
         <span>Titre</span>
-        <input id="noteSubject" maxlength="500" value="Compte rendu — ${escapeHtml(context.subject)}" />
+        <input id="noteSubject" maxlength="500" value="Compte rendu — ${escapeHtml(context.subject)}" disabled />
       </label>
       <label class="field">
         <span>Note</span>
-        <textarea id="noteText" rows="7" maxlength="100000" placeholder="Saisissez le compte rendu, les décisions et les actions à réaliser…"></textarea>
+        <textarea id="noteText" rows="7" maxlength="100000" placeholder="Saisissez le compte rendu, les décisions et les actions à réaliser…" disabled></textarea>
       </label>
       <button id="saveButton" class="primary-button" type="button" disabled>Enregistrer dans le CRM</button>
       <p id="saveStatus" class="status-message" role="status"></p>
@@ -170,8 +190,13 @@ function renderShell() {
   document.querySelector("#candidateSelect").addEventListener("change", async (event) => {
     selectedAppointment = candidates.find((candidate) => candidate.activityid === event.target.value) || null;
     updateSelectedAppointment();
-    if (selectedAppointment) await refreshNotes();
+    if (selectedAppointment) await Promise.all([refreshCrmFields(), refreshNotes()]);
   });
+  document.querySelector("#qualificationSelect").addEventListener("change", (event) => {
+    document.querySelector("#saveCrmFieldsButton").disabled =
+      !selectedAppointment || event.target.value === "";
+  });
+  document.querySelector("#saveCrmFieldsButton").addEventListener("click", saveCrmFields);
   document.querySelector("#saveButton").addEventListener("click", saveNote);
   if (interruptedDiagnostic) clearInterruptedStartupDiagnostic();
 }
@@ -218,19 +243,141 @@ function renderCandidates() {
 }
 
 function updateSelectedAppointment() {
-  document.querySelector("#saveButton").disabled = !selectedAppointment;
+  const regarding = getRegardingReference(selectedAppointment);
+  const noteEnabled = Boolean(selectedAppointment && regarding);
+  document.querySelector("#noteSubject").disabled = !noteEnabled;
+  document.querySelector("#noteText").disabled = !noteEnabled;
+  document.querySelector("#saveButton").disabled = !noteEnabled;
+  document.querySelector("#saveCrmFieldsButton").disabled = true;
+
+  const noteTarget = document.querySelector("#noteTarget");
+  if (regarding) {
+    noteTarget.textContent = `La note sera enregistrée sur le Concernant : ${regarding.label}.`;
+    noteTarget.className = "success";
+  } else if (selectedAppointment) {
+    noteTarget.textContent =
+      "Ce rendez-vous n’a aucun Concernant. L’enregistrement d’une note est désactivé.";
+    noteTarget.className = "warning";
+  } else {
+    noteTarget.textContent = "Sélectionnez d’abord un rendez-vous CRM.";
+    noteTarget.className = "muted";
+  }
+
   if (!selectedAppointment) {
     document.querySelector("#notesList").innerHTML = '<p class="muted">Aucun rendez-vous CRM sélectionné.</p>';
+    const qualificationSelect = document.querySelector("#qualificationSelect");
+    qualificationSelect.disabled = true;
+    qualificationSelect.innerHTML =
+      '<option value="">Sélectionnez d’abord un rendez-vous CRM</option>';
+    document.querySelector("#crmFieldsStatus").textContent = "";
+  } else if (!regarding) {
+    document.querySelector("#notesList").innerHTML =
+      '<p class="warning">Aucune note disponible : le rendez-vous n’a pas de Concernant.</p>';
+  }
+}
+
+function qualificationLabel(value) {
+  return qualificationOptions?.find((option) => option.value === Number(value))?.label || "";
+}
+
+async function refreshCrmFields() {
+  const appointmentId = selectedAppointment?.activityid;
+  const select = document.querySelector("#qualificationSelect");
+  const button = document.querySelector("#saveCrmFieldsButton");
+  const status = document.querySelector("#crmFieldsStatus");
+
+  if (!appointmentId) return;
+
+  select.disabled = true;
+  button.disabled = true;
+  select.innerHTML = '<option value="">Chargement des choix CRM…</option>';
+  status.textContent = "";
+
+  try {
+    qualificationOptions ||= await getAppointmentQualificationOptions(config, accessToken);
+    if (selectedAppointment?.activityid !== appointmentId) return;
+
+    select.innerHTML = [
+      '<option value="">— Sélectionner —</option>',
+      ...qualificationOptions.map(
+        (option) =>
+          `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`,
+      ),
+    ].join("");
+
+    const currentValue = selectedAppointment[APPOINTMENT_QUALIFICATION_FIELD];
+    select.value = currentValue == null ? "" : String(currentValue);
+    select.disabled = false;
+    button.disabled = select.value === "";
+
+    const formattedValue =
+      selectedAppointment[
+        `${APPOINTMENT_QUALIFICATION_FIELD}@OData.Community.Display.V1.FormattedValue`
+      ] || qualificationLabel(currentValue);
+    status.textContent = formattedValue ? `Valeur actuelle : ${formattedValue}` : "Aucune qualification renseignée.";
+    status.className = "status-message muted";
+  } catch (error) {
+    console.error(error);
+    status.textContent = `Impossible de charger les qualifications : ${error.message}`;
+    status.className = "status-message warning";
+  }
+}
+
+async function saveCrmFields() {
+  const select = document.querySelector("#qualificationSelect");
+  const button = document.querySelector("#saveCrmFieldsButton");
+  const status = document.querySelector("#crmFieldsStatus");
+  const value = select.value;
+
+  if (!selectedAppointment || value === "") {
+    status.textContent = "Sélectionnez une qualification.";
+    status.className = "status-message warning";
+    return;
+  }
+
+  select.disabled = true;
+  button.disabled = true;
+  button.textContent = "Mise à jour…";
+  status.textContent = "";
+
+  try {
+    const updatedAppointment = await updateAppointmentQualification(
+      config,
+      accessToken,
+      selectedAppointment.activityid,
+      value,
+    );
+    const label = qualificationLabel(value);
+    Object.assign(selectedAppointment, updatedAppointment || {}, {
+      [APPOINTMENT_QUALIFICATION_FIELD]: Number(value),
+      [`${APPOINTMENT_QUALIFICATION_FIELD}@OData.Community.Display.V1.FormattedValue`]: label,
+    });
+    status.textContent = `Qualification mise à jour : ${label}.`;
+    status.className = "status-message success";
+  } catch (error) {
+    console.error(error);
+    status.textContent = error.message || "La mise à jour de la qualification a échoué.";
+    status.className = "status-message warning";
+  } finally {
+    select.disabled = !selectedAppointment;
+    button.disabled = !selectedAppointment || select.value === "";
+    button.textContent = "Mettre à jour la qualification";
   }
 }
 
 async function refreshNotes() {
   const notesList = document.querySelector("#notesList");
+  const regarding = getRegardingReference(selectedAppointment);
+  if (!regarding) {
+    notesList.innerHTML =
+      '<p class="warning">Aucune note disponible : le rendez-vous n’a pas de Concernant.</p>';
+    return;
+  }
   notesList.innerHTML = '<p class="muted">Chargement des notes…</p>';
   try {
-    const notes = await getAppointmentNotes(config, accessToken, selectedAppointment.activityid);
+    const notes = await getRegardingNotes(config, accessToken, regarding);
     if (!notes.length) {
-      notesList.innerHTML = '<p class="muted">Aucune note pour ce rendez-vous.</p>';
+      notesList.innerHTML = `<p class="muted">Aucune note sur ${escapeHtml(regarding.label)}.</p>`;
       return;
     }
     notesList.innerHTML = notes
@@ -253,9 +400,16 @@ async function saveNote() {
   const status = document.querySelector("#saveStatus");
   const subject = document.querySelector("#noteSubject").value.trim();
   const text = document.querySelector("#noteText").value.trim();
+  const regarding = getRegardingReference(selectedAppointment);
 
   if (!selectedAppointment) {
     status.textContent = "Sélectionnez le rendez-vous CRM.";
+    status.className = "status-message warning";
+    return;
+  }
+  if (!regarding) {
+    status.textContent =
+      "Ce rendez-vous n’a aucun Concernant. La note ne peut pas être enregistrée.";
     status.className = "status-message warning";
     return;
   }
@@ -271,7 +425,7 @@ async function saveNote() {
   status.textContent = "";
 
   try {
-    await createAppointmentNote(config, accessToken, selectedAppointment.activityid, {
+    await createRegardingNote(config, accessToken, regarding, {
       subject: subject || `Compte rendu — ${context.subject}`,
       text,
     });
@@ -283,7 +437,7 @@ async function saveNote() {
       markerWarning = " La note est bien enregistrée, mais Outlook n’a pas actualisé le libellé Journal/Afficher.";
     }
     document.querySelector("#noteText").value = "";
-    status.textContent = `Note enregistrée dans le rendez-vous CRM.${markerWarning}`;
+    status.textContent = `Note enregistrée sur ${regarding.label}.${markerWarning}`;
     status.className = "status-message success";
     await refreshNotes();
   } catch (error) {
@@ -291,7 +445,7 @@ async function saveNote() {
     status.textContent = error.message || "L’enregistrement a échoué.";
     status.className = "status-message warning";
   } finally {
-    button.disabled = !selectedAppointment;
+    button.disabled = !getRegardingReference(selectedAppointment);
     button.textContent = "Enregistrer dans le CRM";
   }
 }
@@ -328,7 +482,7 @@ async function start() {
     renderCandidates();
     if (selectedAppointment) {
       recordStartupPhase("dataverse_notes");
-      await refreshNotes();
+      await Promise.all([refreshCrmFields(), refreshNotes()]);
     }
     completeStartupDiagnostic();
   } catch (error) {
