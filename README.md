@@ -46,8 +46,8 @@ le téléphone directement vers Microsoft Dataverse avec le jeton de l’utilisa
    - `VITE_CLIENT_ID` ;
    - `VITE_TENANT_ID`.
 
-   Le workflow contient déjà les deux valeurs publiques propres au prototype :
-   `https://roth-dev.crm4.dynamics.com` et
+   Le workflow contient déjà les deux valeurs publiques de l’application :
+   `https://roth.crm4.dynamics.com` et
    `https://itroth-77.github.io/rfr-outlook-notes-crm`.
 5. Envoyer les fichiers sur la branche `main`. Le workflow
    `Publier RFR Notes CRM` teste, compile et publie automatiquement le site.

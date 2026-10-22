@@ -38,7 +38,7 @@ jobs:
         env:
           VITE_CLIENT_ID: ${{ vars.VITE_CLIENT_ID }}
           VITE_TENANT_ID: ${{ vars.VITE_TENANT_ID }}
-          VITE_DATAVERSE_URL: https://roth-dev.crm4.dynamics.com
+          VITE_DATAVERSE_URL: https://roth.crm4.dynamics.com
 
       - name: Générer le manifeste Outlook
         run: |
@@ -46,7 +46,7 @@ jobs:
           cp manifest.xml dist/manifest.xml
         env:
           APP_URL: https://itroth-77.github.io/rfr-outlook-notes-crm
-          VITE_DATAVERSE_URL: https://roth-dev.crm4.dynamics.com
+          VITE_DATAVERSE_URL: https://roth.crm4.dynamics.com
 
       - name: Configurer GitHub Pages
         uses: actions/configure-pages@v5
