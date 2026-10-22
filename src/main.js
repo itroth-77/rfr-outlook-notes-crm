@@ -30,6 +30,7 @@ let interruptedDiagnostic = null;
 const PHASE_LABELS = {
   application_start: "Démarrage de l’application",
   configuration: "Lecture de la configuration",
+  office_library: "Chargement de la bibliothèque Office",
   outlook_initialization: "Initialisation d’Outlook",
   outlook_item: "Accès au rendez-vous Outlook",
   outlook_fields: "Lecture du rendez-vous Outlook",

@@ -93,6 +93,10 @@ Ce choix évite d’attacher silencieusement une note au mauvais client.
 démarrage et retente une fois la lecture du rendez-vous si Outlook tarde à
 répondre. Un échec affiche un code technique et un bouton **Réessayer**.
 
+La version 2.0.5 charge également la bibliothèque Office après l’affichage de
+l’interface. Une indisponibilité d’Office.js ne peut ainsi plus bloquer le volet
+avant même le démarrage du diagnostic.
+
 Si Outlook ferme le volet avant de pouvoir afficher l’erreur, la dernière étape
 atteinte est conservée uniquement dans le stockage local du volet. Elle est
 présentée à la prochaine ouverture réussie. Le diagnostic ne contient ni sujet,

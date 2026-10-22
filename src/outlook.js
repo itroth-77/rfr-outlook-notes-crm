@@ -1,8 +1,12 @@
 import { delay, retry, withTimeout } from "./resilience.js";
 
 const OFFICE_READY_TIMEOUT_MS = 8_000;
+const OFFICE_JS_TIMEOUT_MS = 10_000;
 const ITEM_WAIT_TIMEOUT_MS = 4_000;
 const FIELD_READ_TIMEOUT_MS = 5_000;
+const OFFICE_JS_URL = "https://appsforoffice.microsoft.com/lib/1/hosted/office.js";
+
+let officeJsPromise;
 
 function outlookError(message, code, cause) {
   const error = new Error(message, cause ? { cause } : undefined);
@@ -32,6 +36,53 @@ function officeAsync(invoke, options = {}) {
     options.timeoutMessage || "Outlook ne répond pas à la lecture du rendez-vous.",
     options.timeoutCode || "OUTLOOK_ASYNC_TIMEOUT",
   );
+}
+
+function loadOfficeJs() {
+  if (globalThis.Office?.onReady) return Promise.resolve();
+  if (officeJsPromise) return officeJsPromise;
+
+  officeJsPromise = new Promise((resolve, reject) => {
+    const existingScript = document.querySelector('script[data-rfr-office-js="true"]');
+    const script = existingScript || document.createElement("script");
+
+    script.addEventListener("load", () => resolve(), { once: true });
+    script.addEventListener(
+      "error",
+      () => reject(outlookError("La bibliothèque Office n’a pas pu être chargée.", "OFFICE_JS_LOAD_ERROR")),
+      { once: true },
+    );
+
+    if (!existingScript) {
+      script.src = OFFICE_JS_URL;
+      script.async = true;
+      script.dataset.rfrOfficeJs = "true";
+      document.head.append(script);
+    }
+  });
+
+  return officeJsPromise;
+}
+
+async function ensureOfficeJs() {
+  try {
+    await withTimeout(
+      loadOfficeJs(),
+      OFFICE_JS_TIMEOUT_MS,
+      "La bibliothèque Office n’a pas répondu dans le délai prévu.",
+      "OFFICE_JS_TIMEOUT",
+    );
+  } catch (error) {
+    document.querySelector('script[data-rfr-office-js="true"]')?.remove();
+    officeJsPromise = null;
+    throw error;
+  }
+  if (!globalThis.Office?.onReady) {
+    throw outlookError(
+      "La bibliothèque Office est chargée mais son API n’est pas disponible.",
+      "OFFICE_JS_API_UNAVAILABLE",
+    );
+  }
 }
 
 function readDate(value, fieldName) {
@@ -81,6 +132,9 @@ async function readOptional(readOperation) {
 }
 
 async function getAppointmentContextOnce(onPhase, attempt) {
+  onPhase?.("office_library", attempt);
+  await ensureOfficeJs();
+
   onPhase?.("outlook_initialization", attempt);
   await withTimeout(
     globalThis.Office.onReady(),
@@ -134,13 +188,6 @@ async function getAppointmentContextOnce(onPhase, attempt) {
 }
 
 export async function getAppointmentContext(options = {}) {
-  if (!globalThis.Office?.onReady) {
-    throw outlookError(
-      "La bibliothèque Office n’a pas été chargée.",
-      "OFFICE_JS_UNAVAILABLE",
-    );
-  }
-
   return retry(
     (attempt) => getAppointmentContextOnce(options.onPhase, attempt),
     {
