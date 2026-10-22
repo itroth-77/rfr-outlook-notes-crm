@@ -86,3 +86,17 @@ l’utilisateur doit choisir explicitement le rendez-vous CRM avant que le bouto
 d’enregistrement soit activé.
 
 Ce choix évite d’attacher silencieusement une note au mauvais client.
+
+## Diagnostic mobile
+
+À partir de la version 2.0.4, le complément affiche l’étape précise de son
+démarrage et retente une fois la lecture du rendez-vous si Outlook tarde à
+répondre. Un échec affiche un code technique et un bouton **Réessayer**.
+
+Si Outlook ferme le volet avant de pouvoir afficher l’erreur, la dernière étape
+atteinte est conservée uniquement dans le stockage local du volet. Elle est
+présentée à la prochaine ouverture réussie. Le diagnostic ne contient ni sujet,
+ni participant, ni texte de note.
+
+Le cas de référence ayant motivé ce diagnostic a été observé avec Outlook pour
+Android 5.2640.

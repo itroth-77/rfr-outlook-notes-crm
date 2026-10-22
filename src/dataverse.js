@@ -1,4 +1,7 @@
+import { withTimeout } from "./resilience.js";
+
 const API_PATH = "/api/data/v9.2";
+const DATAVERSE_TIMEOUT_MS = 20_000;
 
 export function escapeODataString(value) {
   return String(value ?? "").replaceAll("'", "''");
@@ -52,18 +55,23 @@ export function chooseUnambiguousCandidate(candidates) {
 }
 
 async function dataverseFetch(config, token, path, options = {}) {
-  const response = await fetch(`${config.dataverseUrl}${API_PATH}${path}`, {
-    ...options,
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json; charset=utf-8",
-      "OData-MaxVersion": "4.0",
-      "OData-Version": "4.0",
-      Prefer: 'odata.include-annotations="OData.Community.Display.V1.FormattedValue,Microsoft.Dynamics.CRM.lookuplogicalname"',
-      Authorization: `Bearer ${token}`,
-      ...(options.headers || {}),
-    },
-  });
+  const response = await withTimeout(
+    fetch(`${config.dataverseUrl}${API_PATH}${path}`, {
+      ...options,
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json; charset=utf-8",
+        "OData-MaxVersion": "4.0",
+        "OData-Version": "4.0",
+        Prefer: 'odata.include-annotations="OData.Community.Display.V1.FormattedValue,Microsoft.Dynamics.CRM.lookuplogicalname"',
+        Authorization: `Bearer ${token}`,
+        ...(options.headers || {}),
+      },
+    }),
+    DATAVERSE_TIMEOUT_MS,
+    "Le CRM n’a pas répondu dans le délai prévu.",
+    "DATAVERSE_TIMEOUT",
+  );
 
   if (!response.ok) {
     let detail = "";
@@ -94,22 +102,27 @@ export async function getAppointmentNotes(config, token, appointmentId) {
 
 export async function createAppointmentNote(config, token, appointmentId, note) {
   const id = String(appointmentId).replace(/[{}]/g, "");
-  const response = await fetch(`${config.dataverseUrl}${API_PATH}/annotations`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json; charset=utf-8",
-      "OData-MaxVersion": "4.0",
-      "OData-Version": "4.0",
-      Prefer: "return=representation",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      subject: note.subject,
-      notetext: note.text,
-      "objectid_appointment@odata.bind": `/appointments(${id})`,
+  const response = await withTimeout(
+    fetch(`${config.dataverseUrl}${API_PATH}/annotations`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json; charset=utf-8",
+        "OData-MaxVersion": "4.0",
+        "OData-Version": "4.0",
+        Prefer: "return=representation",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        subject: note.subject,
+        notetext: note.text,
+        "objectid_appointment@odata.bind": `/appointments(${id})`,
+      }),
     }),
-  });
+    DATAVERSE_TIMEOUT_MS,
+    "Le CRM n’a pas répondu pendant l’enregistrement de la note.",
+    "DATAVERSE_NOTE_TIMEOUT",
+  );
 
   if (!response.ok) {
     let detail = "";

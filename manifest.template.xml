@@ -12,8 +12,8 @@
   <DefaultLocale>fr-FR</DefaultLocale>
   <DisplayName DefaultValue="RFR Notes CRM — v{{APP_VERSION}}" />
   <Description DefaultValue="Version {{APP_VERSION}} — Ajoute un compte rendu au rendez-vous correspondant dans Dynamics 365." />
-  <IconUrl DefaultValue="https://officedev.github.io/Office-Add-in-samples/Samples/hello-world/outlook-hello-world/assets/icon-32.png" />
-  <HighResolutionIconUrl DefaultValue="https://officedev.github.io/Office-Add-in-samples/Samples/hello-world/outlook-hello-world/assets/icon-80.png" />
+  <IconUrl DefaultValue="{{APP_URL}}/assets/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="{{APP_URL}}/assets/icon-80.png" />
   <SupportUrl DefaultValue="{{APP_URL}}" />
 
   <AppDomains>
@@ -68,15 +68,15 @@
               <Control xsi:type="MobileButton" id="RfrCrmNotes.MobileButton">
                 <Label resid="ButtonLabel" />
                 <Icon>
-                  <bt:Image size="25" scale="1" resid="Icon16" />
-                  <bt:Image size="25" scale="2" resid="Icon16" />
-                  <bt:Image size="25" scale="3" resid="Icon16" />
+                  <bt:Image size="25" scale="1" resid="Icon25" />
+                  <bt:Image size="25" scale="2" resid="Icon25" />
+                  <bt:Image size="25" scale="3" resid="Icon25" />
                   <bt:Image size="32" scale="1" resid="Icon32" />
                   <bt:Image size="32" scale="2" resid="Icon32" />
                   <bt:Image size="32" scale="3" resid="Icon32" />
-                  <bt:Image size="48" scale="1" resid="Icon80" />
-                  <bt:Image size="48" scale="2" resid="Icon80" />
-                  <bt:Image size="48" scale="3" resid="Icon80" />
+                  <bt:Image size="48" scale="1" resid="Icon48" />
+                  <bt:Image size="48" scale="2" resid="Icon48" />
+                  <bt:Image size="48" scale="3" resid="Icon48" />
                 </Icon>
                 <Action xsi:type="ShowTaskpane"><SourceLocation resid="Taskpane.Url" /></Action>
               </Control>
@@ -86,9 +86,11 @@
       </Hosts>
       <Resources>
         <bt:Images>
-          <bt:Image id="Icon16" DefaultValue="https://officedev.github.io/Office-Add-in-samples/Samples/hello-world/outlook-hello-world/assets/icon-16.png" />
-          <bt:Image id="Icon32" DefaultValue="https://officedev.github.io/Office-Add-in-samples/Samples/hello-world/outlook-hello-world/assets/icon-32.png" />
-          <bt:Image id="Icon80" DefaultValue="https://officedev.github.io/Office-Add-in-samples/Samples/hello-world/outlook-hello-world/assets/icon-80.png" />
+          <bt:Image id="Icon16" DefaultValue="{{APP_URL}}/assets/icon-16.png" />
+          <bt:Image id="Icon25" DefaultValue="{{APP_URL}}/assets/icon-25.png" />
+          <bt:Image id="Icon32" DefaultValue="{{APP_URL}}/assets/icon-32.png" />
+          <bt:Image id="Icon48" DefaultValue="{{APP_URL}}/assets/icon-48.png" />
+          <bt:Image id="Icon80" DefaultValue="{{APP_URL}}/assets/icon-80.png" />
         </bt:Images>
         <bt:Urls><bt:Url id="Taskpane.Url" DefaultValue="{{APP_URL}}/index.html" /></bt:Urls>
         <bt:ShortStrings>

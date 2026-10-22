@@ -3,6 +3,14 @@ import packageMetadata from "../package.json";
 import { getConfig } from "./config.js";
 import { getDataverseAccessToken } from "./auth.js";
 import {
+  beginStartupDiagnostic,
+  clearInterruptedStartupDiagnostic,
+  completeStartupDiagnostic,
+  getCurrentStartupDiagnostic,
+  recordStartupFailure,
+  recordStartupPhase,
+} from "./diagnostics.js";
+import {
   chooseUnambiguousCandidate,
   createAppointmentNote,
   findAppointmentCandidates,
@@ -17,6 +25,19 @@ let context;
 let accessToken;
 let candidates = [];
 let selectedAppointment = null;
+let interruptedDiagnostic = null;
+
+const PHASE_LABELS = {
+  application_start: "Démarrage de l’application",
+  configuration: "Lecture de la configuration",
+  outlook_initialization: "Initialisation d’Outlook",
+  outlook_item: "Accès au rendez-vous Outlook",
+  outlook_fields: "Lecture du rendez-vous Outlook",
+  authentication: "Connexion Microsoft",
+  dataverse_search: "Recherche du rendez-vous CRM",
+  dataverse_notes: "Chargement des notes CRM",
+  ready: "Application prête",
+};
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -38,14 +59,54 @@ function formatDate(date) {
   }).format(new Date(date));
 }
 
+function setLoadingPhase(message, detail = "") {
+  const status = document.querySelector("#loadingStatus");
+  const phaseDetail = document.querySelector("#loadingDetail");
+  const version = document.querySelector("#loadingVersion");
+  if (status) status.textContent = message;
+  if (phaseDetail) phaseDetail.textContent = detail;
+  if (version) version.textContent = `v${packageMetadata.version}`;
+}
+
+function diagnosticMarkup(diagnostic, title = "Diagnostic") {
+  if (!diagnostic) return "";
+  const phase = PHASE_LABELS[diagnostic.phase] || diagnostic.phase || "Étape inconnue";
+  const date = diagnostic.updatedAt
+    ? new Intl.DateTimeFormat("fr-FR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(new Date(diagnostic.updatedAt))
+    : "Date inconnue";
+  return `
+    <details class="diagnostic-details">
+      <summary>${escapeHtml(title)}</summary>
+      <p><strong>Version :</strong> ${escapeHtml(diagnostic.appVersion || packageMetadata.version)}</p>
+      <p><strong>Étape :</strong> ${escapeHtml(phase)}</p>
+      <p><strong>Tentative :</strong> ${escapeHtml(diagnostic.attempt || 1)}</p>
+      <p><strong>Date :</strong> ${escapeHtml(date)}</p>
+      ${diagnostic.errorCode ? `<p><strong>Code :</strong> ${escapeHtml(diagnostic.errorCode)}</p>` : ""}
+    </details>`;
+}
+
 function showFatalError(error) {
   console.error(error);
+  recordStartupFailure(error);
+  const diagnostic = getCurrentStartupDiagnostic();
   app.innerHTML = `
     <section class="card error-card">
       <h1>Impossible d’ouvrir les notes CRM</h1>
       <p>${escapeHtml(error?.message || error)}</p>
+      <p class="error-code">Code : ${escapeHtml(error?.code || error?.name || "UNKNOWN_ERROR")} · v${escapeHtml(packageMetadata.version)}</p>
       <p class="hint">Aucune donnée n’a été enregistrée.</p>
+      <button id="retryButton" class="primary-button" type="button">Réessayer</button>
+      ${diagnosticMarkup(diagnostic, "Détails techniques")}
+      ${diagnosticMarkup(interruptedDiagnostic, "Tentative précédente interrompue")}
     </section>`;
+  document.querySelector("#retryButton").addEventListener("click", () => globalThis.location.reload());
 }
 
 function renderShell() {
@@ -64,6 +125,8 @@ function renderShell() {
         <span class="status-chip" id="connectionStatus">Connexion…</span>
       </div>
     </header>
+
+    ${diagnosticMarkup(interruptedDiagnostic, "La tentative précédente a été interrompue par Outlook")}
 
     <section class="card appointment-summary">
       <dl>
@@ -108,6 +171,7 @@ function renderShell() {
     if (selectedAppointment) await refreshNotes();
   });
   document.querySelector("#saveButton").addEventListener("click", saveNote);
+  if (interruptedDiagnostic) clearInterruptedStartupDiagnostic();
 }
 
 function candidateText(candidate) {
@@ -209,9 +273,15 @@ async function saveNote() {
       subject: subject || `Compte rendu — ${context.subject}`,
       text,
     });
-    await markAppointmentAsLogged();
+    let markerWarning = "";
+    try {
+      await markAppointmentAsLogged();
+    } catch (error) {
+      console.warn("La note est créée, mais le libellé Outlook n’a pas pu être actualisé.", error);
+      markerWarning = " La note est bien enregistrée, mais Outlook n’a pas actualisé le libellé Journal/Afficher.";
+    }
     document.querySelector("#noteText").value = "";
-    status.textContent = "Note enregistrée dans le rendez-vous CRM.";
+    status.textContent = `Note enregistrée dans le rendez-vous CRM.${markerWarning}`;
     status.className = "status-message success";
     await refreshNotes();
   } catch (error) {
@@ -226,17 +296,39 @@ async function saveNote() {
 
 async function start() {
   try {
+    interruptedDiagnostic = beginStartupDiagnostic(packageMetadata.version);
+    setLoadingPhase("Initialisation d’Outlook…", `Diagnostic v${packageMetadata.version}`);
+
+    recordStartupPhase("configuration");
     config = getConfig();
-    context = await getAppointmentContext();
+    context = await getAppointmentContext({
+      onPhase: (phase, attempt) => {
+        recordStartupPhase(phase, { attempt });
+        const suffix = attempt > 1 ? ` — tentative ${attempt}/2` : "";
+        setLoadingPhase(`${PHASE_LABELS[phase] || "Lecture du rendez-vous"}${suffix}…`);
+      },
+      onRetry: (_error, nextAttempt) => {
+        setLoadingPhase(
+          "Outlook tarde à répondre…",
+          `Nouvelle tentative automatique ${nextAttempt}/2`,
+        );
+      },
+    });
     renderShell();
 
+    recordStartupPhase("authentication");
     accessToken = await getDataverseAccessToken(config);
     document.querySelector("#connectionStatus").textContent = "CRM connecté";
     document.querySelector("#connectionStatus").classList.add("connected");
 
+    recordStartupPhase("dataverse_search");
     candidates = await findAppointmentCandidates(config, accessToken, context);
     renderCandidates();
-    if (selectedAppointment) await refreshNotes();
+    if (selectedAppointment) {
+      recordStartupPhase("dataverse_notes");
+      await refreshNotes();
+    }
+    completeStartupDiagnostic();
   } catch (error) {
     showFatalError(error);
   }

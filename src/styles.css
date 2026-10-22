@@ -71,6 +71,8 @@ h3 { margin: 0; font-size: 18px; }
 }
 
 .loading-card { margin-top: 32px; text-align: center; }
+.loading-card p { margin: 8px 0; }
+.loading-version { color: #3860b2; font-size: 14px; font-weight: 800; }
 
 .spinner {
   width: 38px;
@@ -155,6 +157,28 @@ input:focus, select:focus, textarea:focus {
 
 .error-card { margin-top: 30px; border-color: #fecdca; }
 .error-card h1 { color: #b42318; }
+.error-code {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fef3f2;
+  color: #b42318;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.diagnostic-details {
+  margin: 12px 0 14px;
+  padding: 12px 14px;
+  border: 1px solid #fdb022;
+  border-radius: 10px;
+  background: #fffaeb;
+  color: #7a2e0e;
+  font-size: 15px;
+}
+.diagnostic-details summary { min-height: 28px; font-weight: 800; cursor: pointer; }
+.diagnostic-details p { margin: 8px 0 0; }
 
 @media (max-width: 420px) {
   .app-header { flex-direction: column; }
