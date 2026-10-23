@@ -116,6 +116,10 @@ Le Concernant peut être affecté ou remplacé depuis le panneau après une
 recherche parmi les comptes, contacts ou opportunités actifs. La création de
 note reste désactivée tant qu’aucun Concernant n’est enregistré.
 
+La recherche du Concernant accepte également les jokers `*` et `%`. Chaque
+fragment saisi doit être présent dans le nom ou, pour un contact, dans le nom
+ou l’adresse e-mail. Par exemple, `%EDEO%GNY%` retrouve `CEDEO LAGNY`.
+
 Les notes de chronologie enregistrées en HTML par Dynamics sont rendues comme
 du contenu mis en forme après suppression des balises, attributs et URL
 potentiellement dangereux.

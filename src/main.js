@@ -264,7 +264,8 @@ function renderShell() {
       </label>
       <label class="field">
         <span>Rechercher</span>
-        <input id="regardingSearchText" placeholder="Nom ou adresse e-mail" disabled />
+        <input id="regardingSearchText" placeholder="Nom, e-mail ou %mot%mot%" disabled />
+        <small class="field-hint">Jokers acceptés : * ou % (ex. %EDEO%GNY%)</small>
       </label>
       <button id="searchRegardingButton" class="secondary-button" type="button" disabled>
         Rechercher dans le CRM
@@ -418,8 +419,8 @@ async function searchRegarding() {
   const resultLabel = document.querySelector("#regardingResultsLabel");
   const status = document.querySelector("#regardingStatus");
 
-  if (searchText.length < 2) {
-    status.textContent = "Saisissez au moins 2 caractères.";
+  if (searchText.replace(/[%*]/g, "").trim().length < 2) {
+    status.textContent = "Saisissez au moins 2 caractères hors jokers.";
     status.className = "status-message warning";
     return;
   }

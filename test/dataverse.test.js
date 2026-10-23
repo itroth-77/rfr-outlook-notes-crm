@@ -4,6 +4,7 @@ import {
   buildAppointmentQuery,
   buildAppointmentRegardingPayload,
   buildCurrentUserActivityPartyQuery,
+  buildRegardingSearchQuery,
   buildRegardingNotePayload,
   chooseUnambiguousCandidate,
   escapeODataString,
@@ -24,6 +25,52 @@ test("Dataverse GUIDs are accepted regardless of RFC version and variant bits", 
     "11111111-2222-7333-6444-555555555555",
   );
   assert.equal(normalizeGuid("not-a-guid"), "");
+});
+
+test("regarding account search accepts percent and star wildcards", () => {
+  const percentQuery = decodeURIComponent(
+    buildRegardingSearchQuery("account", "%EDEO%GNY%"),
+  );
+  const starQuery = decodeURIComponent(
+    buildRegardingSearchQuery("account", "*EDEO*GNY*"),
+  );
+
+  for (const query of [percentQuery, starQuery]) {
+    assert.match(query, /\/accounts\?/);
+    assert.match(query, /contains\(name,'EDEO'\)/);
+    assert.match(query, /contains\(accountnumber,'EDEO'\)/);
+    assert.match(query, / and /);
+    assert.match(query, /contains\(name,'GNY'\)/);
+    assert.match(query, /contains\(accountnumber,'GNY'\)/);
+  }
+});
+
+test("regarding contact wildcards search both name and email", () => {
+  const query = decodeURIComponent(
+    buildRegardingSearchQuery("contact", "%Dupont%roth-france%"),
+  );
+
+  assert.match(query, /contains\(fullname,'Dupont'\)/);
+  assert.match(query, /contains\(emailaddress1,'Dupont'\)/);
+  assert.match(query, / and /);
+  assert.match(query, /contains\(fullname,'roth-france'\)/);
+  assert.match(query, /contains\(emailaddress1,'roth-france'\)/);
+});
+
+test("regarding opportunity wildcard search uses the opportunity name", () => {
+  const query = decodeURIComponent(
+    buildRegardingSearchQuery("opportunity", "%Projet%Paris%"),
+  );
+
+  assert.match(query, /\/opportunities\?/);
+  assert.match(query, /\(contains\(name,'Projet'\)\) and \(contains\(name,'Paris'\)\)/);
+});
+
+test("regarding wildcard search requires two literal characters", () => {
+  assert.throws(
+    () => buildRegardingSearchQuery("account", "%%%*"),
+    /2 caractères hors jokers/,
+  );
 });
 
 test("buildAppointmentQuery creates a 30-minute UTC window", () => {

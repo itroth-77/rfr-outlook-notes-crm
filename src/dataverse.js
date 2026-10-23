@@ -233,21 +233,39 @@ export async function updateAppointmentQualification(
   });
 }
 
-export async function searchRegardingRecords(config, token, logicalName, searchText) {
+export function buildRegardingSearchQuery(logicalName, searchText) {
   const type = REGARDING_TYPES[logicalName];
   const text = String(searchText || "").trim();
   if (!type) throw new Error("Le type de Concernant n’est pas pris en charge.");
-  if (text.length < 2) throw new Error("Saisissez au moins 2 caractères.");
+  const fragments = text
+    .split(/[%*]+/)
+    .map((fragment) => fragment.trim())
+    .filter(Boolean);
+  if (fragments.join("").length < 2) {
+    throw new Error("Saisissez au moins 2 caractères hors jokers.");
+  }
 
-  const escapedText = escapeODataString(text);
   const searchFields = [type.nameField, type.detailField].filter(Boolean);
-  const textFilter = searchFields
-    .map((field) => `contains(${field},'${escapedText}')`)
-    .join(" or ");
+  const textFilter = fragments
+    .map((fragment) => {
+      const escapedFragment = escapeODataString(fragment);
+      return `(${searchFields
+        .map((field) => `contains(${field},'${escapedFragment}')`)
+        .join(" or ")})`;
+    })
+    .join(" and ");
   const select = [type.idField, type.nameField, type.detailField].filter(Boolean).join(",");
   const filter = encodeURIComponent(`statecode eq 0 and (${textFilter})`);
-  const path = `/${type.entitySet}?$select=${select}&$filter=${filter}&$orderby=${type.nameField} asc&$top=25`;
-  const result = await dataverseFetch(config, token, path);
+  return `/${type.entitySet}?$select=${select}&$filter=${filter}&$orderby=${type.nameField} asc&$top=25`;
+}
+
+export async function searchRegardingRecords(config, token, logicalName, searchText) {
+  const type = REGARDING_TYPES[logicalName];
+  const result = await dataverseFetch(
+    config,
+    token,
+    buildRegardingSearchQuery(logicalName, searchText),
+  );
 
   return (result.value || []).map((record) => ({
     id: record[type.idField],

@@ -111,6 +111,13 @@ dd { margin: 3px 0 0; font-size: 18px; line-height: 1.35; }
   font-size: 16px;
   font-weight: 700;
 }
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  color: #667085;
+  font-size: 14px;
+  line-height: 1.35;
+}
 
 input, select, textarea {
   width: 100%;
