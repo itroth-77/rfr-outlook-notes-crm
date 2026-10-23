@@ -268,10 +268,14 @@ export function buildRegardingSearchQuery(logicalName, searchText) {
     .join(" and ");
   const select = [type.idField, type.nameField, type.detailField].filter(Boolean).join(",");
   const filter = encodeURIComponent(`statecode eq 0 and (${textFilter})`);
-  return `/${type.entitySet}?$select=${select}&$filter=${filter}&$orderby=${type.nameField} asc&$top=25`;
+  return `/${type.entitySet}?$select=${select}&$filter=${filter}&$orderby=${type.nameField} asc&$top=100`;
 }
 
-export function buildOpportunitySearchQuery(searchText, businessIdsByFragment = []) {
+export function buildOpportunitySearchQuery(
+  searchText,
+  businessIdsByFragment = [],
+  businessIdsMatchingAllFragments = [],
+) {
   const type = REGARDING_TYPES.opportunity;
   const fragments = parseRegardingSearchFragments(searchText);
   const fragmentFilters = fragments.map((fragment, index) => {
@@ -282,9 +286,14 @@ export function buildOpportunitySearchQuery(searchText, businessIdsByFragment = 
     }
     return `(${conditions.join(" or ")})`;
   });
+  const combinedConditions = [`(${fragmentFilters.join(" and ")})`];
+  for (const value of businessIdsMatchingAllFragments) {
+    const id = normalizeGuid(value);
+    if (id) combinedConditions.push(`${OPPORTUNITY_BUSINESS_LOOKUP_VALUE} eq ${id}`);
+  }
   const select = [type.idField, type.nameField, type.detailField].join(",");
-  const filter = encodeURIComponent(`statecode eq 0 and (${fragmentFilters.join(" and ")})`);
-  return `/${type.entitySet}?$select=${select}&$filter=${filter}&$orderby=${type.nameField} asc&$top=25`;
+  const filter = encodeURIComponent(`statecode eq 0 and (${combinedConditions.join(" or ")})`);
+  return `/${type.entitySet}?$select=${select}&$filter=${filter}&$orderby=${type.nameField} asc&$top=100`;
 }
 
 function validateMetadataName(value, label) {
@@ -326,35 +335,49 @@ async function getOpportunityBusinessDefinition(config, token) {
   return opportunityBusinessDefinitionPromise;
 }
 
-function buildBusinessFragmentQuery(definition, fragment) {
-  const escapedFragment = escapeODataString(fragment);
-  const filter = encodeURIComponent(`contains(${definition.nameField},'${escapedFragment}')`);
+function buildBusinessFragmentsQuery(definition, fragments) {
+  const textFilter = fragments
+    .map(
+      (fragment) =>
+        `contains(${definition.nameField},'${escapeODataString(fragment)}')`,
+    )
+    .join(" and ");
+  const filter = encodeURIComponent(textFilter);
   return (
     `/${definition.entitySet}` +
     `?$select=${definition.idField},${definition.nameField}` +
-    `&$filter=${filter}&$orderby=${definition.nameField} asc&$top=50`
+    `&$filter=${filter}&$orderby=${definition.nameField} asc&$top=100`
   );
 }
 
 async function searchOpportunityRecords(config, token, searchText) {
   const fragments = parseRegardingSearchFragments(searchText);
   const businessDefinition = await getOpportunityBusinessDefinition(config, token);
-  const businessIdsByFragment = await Promise.all(
-    fragments.map(async (fragment) => {
-      const result = await dataverseFetch(
-        config,
-        token,
-        buildBusinessFragmentQuery(businessDefinition, fragment),
-      );
-      return (result.value || [])
-        .map((record) => normalizeGuid(record[businessDefinition.idField]))
-        .filter(Boolean);
-    }),
-  );
+  const searchBusinessIds = async (searchFragments) => {
+    const result = await dataverseFetch(
+      config,
+      token,
+      buildBusinessFragmentsQuery(businessDefinition, searchFragments),
+    );
+    return (result.value || [])
+      .map((record) => normalizeGuid(record[businessDefinition.idField]))
+      .filter(Boolean);
+  };
+  const searches = fragments.map((fragment) => searchBusinessIds([fragment]));
+  if (fragments.length > 1) searches.push(searchBusinessIds(fragments));
+  const searchResults = await Promise.all(searches);
+  const businessIdsByFragment = searchResults.slice(0, fragments.length);
+  const businessIdsMatchingAllFragments = fragments.length > 1
+    ? searchResults.at(-1)
+    : businessIdsByFragment[0];
   return dataverseFetch(
     config,
     token,
-    buildOpportunitySearchQuery(searchText, businessIdsByFragment),
+    buildOpportunitySearchQuery(
+      searchText,
+      businessIdsByFragment,
+      businessIdsMatchingAllFragments,
+    ),
   );
 }
 

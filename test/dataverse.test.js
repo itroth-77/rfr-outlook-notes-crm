@@ -64,6 +64,7 @@ test("regarding opportunity search combines its number and related business", ()
     buildOpportunitySearchQuery(
       "%403151%MA REXEL%",
       [[], ["11111111-2222-7333-6444-555555555555"]],
+      [],
     ),
   );
 
@@ -75,6 +76,27 @@ test("regarding opportunity search combines its number and related business", ()
   assert.match(
     query,
     /_rfr_lk_business_value eq 11111111-2222-7333-6444-555555555555/,
+  );
+});
+
+test("broad opportunity fragments keep businesses matching all fragments", () => {
+  const query = decodeURIComponent(
+    buildOpportunitySearchQuery(
+      "*ma*rexel*",
+      [
+        ["aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"],
+        ["11111111-2222-7333-6444-555555555555"],
+      ],
+      ["99999999-8888-7777-6666-555555555555"],
+    ),
+  );
+
+  assert.match(query, /contains\(name,'ma'\)/);
+  assert.match(query, /contains\(name,'rexel'\)/);
+  assert.match(query, /\$top=100$/);
+  assert.match(
+    query,
+    /or _rfr_lk_business_value eq 99999999-8888-7777-6666-555555555555/,
   );
 });
 
