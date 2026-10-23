@@ -264,7 +264,7 @@ function renderShell() {
       </label>
       <label class="field">
         <span>Rechercher</span>
-        <input id="regardingSearchText" placeholder="Nom, e-mail ou %mot%mot%" disabled />
+        <input id="regardingSearchText" placeholder="Nom ou numéro de compte" disabled />
         <small class="field-hint">Jokers acceptés : * ou % (ex. %EDEO%GNY%)</small>
       </label>
       <button id="searchRegardingButton" class="secondary-button" type="button" disabled>
@@ -306,7 +306,10 @@ function renderShell() {
       !selectedAppointment || event.target.value === "";
   });
   document.querySelector("#saveCrmFieldsButton").addEventListener("click", saveCrmFields);
-  document.querySelector("#regardingTypeSelect").addEventListener("change", () => resetRegardingSearch());
+  document.querySelector("#regardingTypeSelect").addEventListener("change", () => {
+    resetRegardingSearch();
+    updateRegardingSearchPlaceholder();
+  });
   document.querySelector("#regardingSearchText").addEventListener("keydown", (event) => {
     if (event.key === "Enter") searchRegarding();
   });
@@ -409,6 +412,17 @@ function resetRegardingSearch(clearText = true) {
   if (button) button.disabled = true;
   const status = document.querySelector("#regardingStatus");
   if (status) status.textContent = "";
+}
+
+function updateRegardingSearchPlaceholder() {
+  const type = document.querySelector("#regardingTypeSelect")?.value;
+  const input = document.querySelector("#regardingSearchText");
+  if (!input) return;
+  input.placeholder = type === "contact"
+    ? "Nom, prénom ou adresse e-mail"
+    : type === "opportunity"
+      ? "Numéro d’opportunité ou affaire"
+      : "Nom ou numéro de compte";
 }
 
 async function searchRegarding() {
@@ -536,6 +550,7 @@ function updateSelectedAppointment() {
     currentRegardingStatus.className = "muted";
   }
   resetRegardingSearch(false);
+  updateRegardingSearchPlaceholder();
 
   const noteTarget = document.querySelector("#noteTarget");
   if (regarding) {

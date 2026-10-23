@@ -3,7 +3,10 @@ import { withTimeout } from "./resilience.js";
 const API_PATH = "/api/data/v9.2";
 const DATAVERSE_TIMEOUT_MS = 20_000;
 const APPOINTMENT_PARTICIPATION_TYPES = new Set([5, 6, 7]);
+const OPPORTUNITY_BUSINESS_ATTRIBUTE = "rfr_lk_business";
+const OPPORTUNITY_BUSINESS_LOOKUP_VALUE = "_rfr_lk_business_value";
 export const APPOINTMENT_QUALIFICATION_FIELD = "rfr_os_appointmentqualification";
+let opportunityBusinessDefinitionPromise;
 const REGARDING_TYPES = {
   account: {
     entitySet: "accounts",
@@ -23,7 +26,8 @@ const REGARDING_TYPES = {
     entitySet: "opportunities",
     idField: "opportunityid",
     nameField: "name",
-    detailField: "",
+    detailField: OPPORTUNITY_BUSINESS_LOOKUP_VALUE,
+    detailIsFormattedLookup: true,
     navigationProperty: "regardingobjectid_opportunity_appointment",
   },
 };
@@ -233,10 +237,8 @@ export async function updateAppointmentQualification(
   });
 }
 
-export function buildRegardingSearchQuery(logicalName, searchText) {
-  const type = REGARDING_TYPES[logicalName];
+export function parseRegardingSearchFragments(searchText) {
   const text = String(searchText || "").trim();
-  if (!type) throw new Error("Le type de Concernant n’est pas pris en charge.");
   const fragments = text
     .split(/[%*]+/)
     .map((fragment) => fragment.trim())
@@ -244,8 +246,18 @@ export function buildRegardingSearchQuery(logicalName, searchText) {
   if (fragments.join("").length < 2) {
     throw new Error("Saisissez au moins 2 caractères hors jokers.");
   }
+  return fragments;
+}
 
-  const searchFields = [type.nameField, type.detailField].filter(Boolean);
+export function buildRegardingSearchQuery(logicalName, searchText) {
+  const type = REGARDING_TYPES[logicalName];
+  if (!type) throw new Error("Le type de Concernant n’est pas pris en charge.");
+  const fragments = parseRegardingSearchFragments(searchText);
+
+  const searchFields = [
+    type.nameField,
+    type.detailIsFormattedLookup ? "" : type.detailField,
+  ].filter(Boolean);
   const textFilter = fragments
     .map((fragment) => {
       const escapedFragment = escapeODataString(fragment);
@@ -259,20 +271,116 @@ export function buildRegardingSearchQuery(logicalName, searchText) {
   return `/${type.entitySet}?$select=${select}&$filter=${filter}&$orderby=${type.nameField} asc&$top=25`;
 }
 
-export async function searchRegardingRecords(config, token, logicalName, searchText) {
-  const type = REGARDING_TYPES[logicalName];
-  const result = await dataverseFetch(
+export function buildOpportunitySearchQuery(searchText, businessIdsByFragment = []) {
+  const type = REGARDING_TYPES.opportunity;
+  const fragments = parseRegardingSearchFragments(searchText);
+  const fragmentFilters = fragments.map((fragment, index) => {
+    const conditions = [`contains(${type.nameField},'${escapeODataString(fragment)}')`];
+    for (const value of businessIdsByFragment[index] || []) {
+      const id = normalizeGuid(value);
+      if (id) conditions.push(`${OPPORTUNITY_BUSINESS_LOOKUP_VALUE} eq ${id}`);
+    }
+    return `(${conditions.join(" or ")})`;
+  });
+  const select = [type.idField, type.nameField, type.detailField].join(",");
+  const filter = encodeURIComponent(`statecode eq 0 and (${fragmentFilters.join(" and ")})`);
+  return `/${type.entitySet}?$select=${select}&$filter=${filter}&$orderby=${type.nameField} asc&$top=25`;
+}
+
+function validateMetadataName(value, label) {
+  const name = String(value || "");
+  if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) {
+    throw new Error(`Les métadonnées Dataverse de ${label} sont invalides.`);
+  }
+  return name;
+}
+
+async function getOpportunityBusinessDefinition(config, token) {
+  if (!opportunityBusinessDefinitionPromise) {
+    opportunityBusinessDefinitionPromise = (async () => {
+      const lookup = await dataverseFetch(
+        config,
+        token,
+        "/EntityDefinitions(LogicalName='opportunity')" +
+          `/Attributes(LogicalName='${OPPORTUNITY_BUSINESS_ATTRIBUTE}')` +
+          "/Microsoft.Dynamics.CRM.LookupAttributeMetadata?$select=Targets",
+      );
+      const logicalName = validateMetadataName(lookup?.Targets?.[0], "l’Affaire");
+      const entity = await dataverseFetch(
+        config,
+        token,
+        `/EntityDefinitions(LogicalName='${logicalName}')` +
+          "?$select=LogicalName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute",
+      );
+      return {
+        logicalName,
+        entitySet: validateMetadataName(entity?.EntitySetName, "la table Affaire"),
+        idField: validateMetadataName(entity?.PrimaryIdAttribute, "l’identifiant de l’Affaire"),
+        nameField: validateMetadataName(entity?.PrimaryNameAttribute, "le nom de l’Affaire"),
+      };
+    })().catch((error) => {
+      opportunityBusinessDefinitionPromise = null;
+      throw error;
+    });
+  }
+  return opportunityBusinessDefinitionPromise;
+}
+
+function buildBusinessFragmentQuery(definition, fragment) {
+  const escapedFragment = escapeODataString(fragment);
+  const filter = encodeURIComponent(`contains(${definition.nameField},'${escapedFragment}')`);
+  return (
+    `/${definition.entitySet}` +
+    `?$select=${definition.idField},${definition.nameField}` +
+    `&$filter=${filter}&$orderby=${definition.nameField} asc&$top=50`
+  );
+}
+
+async function searchOpportunityRecords(config, token, searchText) {
+  const fragments = parseRegardingSearchFragments(searchText);
+  const businessDefinition = await getOpportunityBusinessDefinition(config, token);
+  const businessIdsByFragment = await Promise.all(
+    fragments.map(async (fragment) => {
+      const result = await dataverseFetch(
+        config,
+        token,
+        buildBusinessFragmentQuery(businessDefinition, fragment),
+      );
+      return (result.value || [])
+        .map((record) => normalizeGuid(record[businessDefinition.idField]))
+        .filter(Boolean);
+    }),
+  );
+  return dataverseFetch(
     config,
     token,
-    buildRegardingSearchQuery(logicalName, searchText),
+    buildOpportunitySearchQuery(searchText, businessIdsByFragment),
   );
+}
 
-  return (result.value || []).map((record) => ({
+export async function searchRegardingRecords(config, token, logicalName, searchText) {
+  const type = REGARDING_TYPES[logicalName];
+  if (!type) throw new Error("Le type de Concernant n’est pas pris en charge.");
+  const result = logicalName === "opportunity"
+    ? await searchOpportunityRecords(config, token, searchText)
+    : await dataverseFetch(config, token, buildRegardingSearchQuery(logicalName, searchText));
+
+  return (result.value || []).map((record) => mapRegardingSearchRecord(logicalName, record));
+}
+
+export function mapRegardingSearchRecord(logicalName, record) {
+  const type = REGARDING_TYPES[logicalName];
+  if (!type) throw new Error("Le type de Concernant n’est pas pris en charge.");
+  return {
     id: record[type.idField],
     logicalName,
     label: record[type.nameField] || "Sans nom",
-    detail: type.detailField ? record[type.detailField] || "" : "",
-  }));
+    detail: type.detailIsFormattedLookup
+      ? record[`${type.detailField}@OData.Community.Display.V1.FormattedValue`] || ""
+      : type.detailField
+        ? record[type.detailField] || ""
+        : "",
+  };
 }
 
 export function buildAppointmentRegardingPayload(logicalName, recordId) {

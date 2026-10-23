@@ -4,6 +4,7 @@ import {
   buildAppointmentQuery,
   buildAppointmentRegardingPayload,
   buildCurrentUserActivityPartyQuery,
+  buildOpportunitySearchQuery,
   buildRegardingSearchQuery,
   buildRegardingNotePayload,
   chooseUnambiguousCandidate,
@@ -11,6 +12,7 @@ import {
   extractQualificationOptions,
   filterAppointmentsForCurrentUser,
   getRegardingReference,
+  mapRegardingSearchRecord,
   normalizeGuid,
   rankAppointmentCandidates,
 } from "../src/dataverse.js";
@@ -57,13 +59,39 @@ test("regarding contact wildcards search both name and email", () => {
   assert.match(query, /contains\(emailaddress1,'roth-france'\)/);
 });
 
-test("regarding opportunity wildcard search uses the opportunity name", () => {
+test("regarding opportunity search combines its number and related business", () => {
   const query = decodeURIComponent(
-    buildRegardingSearchQuery("opportunity", "%Projet%Paris%"),
+    buildOpportunitySearchQuery(
+      "%403151%MA REXEL%",
+      [[], ["11111111-2222-7333-6444-555555555555"]],
+    ),
   );
 
   assert.match(query, /\/opportunities\?/);
-  assert.match(query, /\(contains\(name,'Projet'\)\) and \(contains\(name,'Paris'\)\)/);
+  assert.match(query, /\$select=opportunityid,name,_rfr_lk_business_value/);
+  assert.match(query, /\(contains\(name,'403151'\)\)/);
+  assert.match(query, / and /);
+  assert.match(query, /contains\(name,'MA REXEL'\)/);
+  assert.match(
+    query,
+    /_rfr_lk_business_value eq 11111111-2222-7333-6444-555555555555/,
+  );
+});
+
+test("regarding opportunity result displays number and formatted business name", () => {
+  const result = mapRegardingSearchRecord("opportunity", {
+    opportunityid: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    name: "403151",
+    _rfr_lk_business_value: "11111111-2222-7333-6444-555555555555",
+    "_rfr_lk_business_value@OData.Community.Display.V1.FormattedValue": "MA REXEL",
+  });
+
+  assert.deepEqual(result, {
+    id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    logicalName: "opportunity",
+    label: "403151",
+    detail: "MA REXEL",
+  });
 });
 
 test("regarding wildcard search requires two literal characters", () => {

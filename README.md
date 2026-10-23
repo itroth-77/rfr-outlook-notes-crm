@@ -117,8 +117,11 @@ recherche parmi les comptes, contacts ou opportunités actifs. La création de
 note reste désactivée tant qu’aucun Concernant n’est enregistré.
 
 La recherche du Concernant accepte également les jokers `*` et `%`. Chaque
-fragment saisi doit être présent dans le nom ou, pour un contact, dans le nom
-ou l’adresse e-mail. Par exemple, `%EDEO%GNY%` retrouve `CEDEO LAGNY`.
+fragment saisi doit être présent dans les champs recherchables. Pour un contact,
+la recherche couvre le nom, le prénom et l’adresse e-mail. Pour une opportunité,
+elle couvre son numéro et le nom de l’Affaire liée ; les résultats sont affichés
+sous la forme `403151 — MA REXEL`. Par exemple, `%EDEO%GNY%` retrouve
+`CEDEO LAGNY` pour un compte.
 
 Les notes de chronologie enregistrées en HTML par Dynamics sont rendues comme
 du contenu mis en forme après suppression des balises, attributs et URL
