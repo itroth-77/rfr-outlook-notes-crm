@@ -266,7 +266,7 @@ function renderShell() {
       <label class="field">
         <span>Rechercher</span>
         <input id="regardingSearchText" placeholder="Nom ou numéro de compte" disabled />
-        <small class="field-hint">Jokers acceptés : * ou % (ex. %EDEO%GNY%)</small>
+        <small class="field-hint">Jokers : * ou %. L’ordre des termes est respecté (ex. *ma*26*rexel*).</small>
       </label>
       <button id="searchRegardingButton" class="secondary-button" type="button" disabled>
         Rechercher dans le CRM

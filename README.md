@@ -123,6 +123,10 @@ elle couvre son numéro et le nom de l’Affaire liée ; les résultats sont aff
 sous la forme `403151 — MA REXEL`. Par exemple, `%EDEO%GNY%` retrouve
 `CEDEO LAGNY` pour un compte.
 
+L’ordre des fragments est respecté dans le texte affiché. Ainsi,
+`*ma*26*rexel*` exige que `ma` apparaisse avant `26`, puis `rexel`, dans
+`numéro — Affaire`.
+
 Les notes de chronologie enregistrées en HTML par Dynamics sont rendues comme
 du contenu mis en forme après suppression des balises, attributs et URL
 potentiellement dangereux.

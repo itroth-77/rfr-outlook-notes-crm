@@ -249,6 +249,26 @@ export function parseRegardingSearchFragments(searchText) {
   return fragments;
 }
 
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("fr-FR");
+}
+
+export function matchesRegardingSearchPattern(record, searchText) {
+  const fragments = parseRegardingSearchFragments(searchText).map(normalizeSearchText);
+  const searchableText = normalizeSearchText(`${record?.label || ""} ${record?.detail || ""}`);
+  let position = 0;
+
+  for (const fragment of fragments) {
+    const matchPosition = searchableText.indexOf(fragment, position);
+    if (matchPosition < 0) return false;
+    position = matchPosition + fragment.length;
+  }
+  return true;
+}
+
 export function buildRegardingSearchQuery(logicalName, searchText) {
   const type = REGARDING_TYPES[logicalName];
   if (!type) throw new Error("Le type de Concernant n’est pas pris en charge.");
@@ -388,7 +408,12 @@ export async function searchRegardingRecords(config, token, logicalName, searchT
     ? await searchOpportunityRecords(config, token, searchText)
     : await dataverseFetch(config, token, buildRegardingSearchQuery(logicalName, searchText));
 
-  return (result.value || []).map((record) => mapRegardingSearchRecord(logicalName, record));
+  const records = (result.value || []).map((record) =>
+    mapRegardingSearchRecord(logicalName, record),
+  );
+  return /[%*]/.test(searchText)
+    ? records.filter((record) => matchesRegardingSearchPattern(record, searchText))
+    : records;
 }
 
 export function mapRegardingSearchRecord(logicalName, record) {

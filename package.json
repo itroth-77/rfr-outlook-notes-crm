@@ -1,7 +1,7 @@
 {
   "name": "rfr-outlook-mobile-crm-notes",
   "private": true,
-  "version": "2.3.2",
+  "version": "2.3.3",
   "type": "module",
   "scripts": {
     "dev": "node scripts/write-version.mjs && vite --host 0.0.0.0 --port 3000",

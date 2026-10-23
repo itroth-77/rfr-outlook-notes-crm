@@ -13,6 +13,7 @@ import {
   filterAppointmentsForCurrentUser,
   getRegardingReference,
   mapRegardingSearchRecord,
+  matchesRegardingSearchPattern,
   normalizeGuid,
   rankAppointmentCandidates,
 } from "../src/dataverse.js";
@@ -97,6 +98,39 @@ test("broad opportunity fragments keep businesses matching all fragments", () =>
   assert.match(
     query,
     /or _rfr_lk_business_value eq 99999999-8888-7777-6666-555555555555/,
+  );
+});
+
+test("regarding wildcard fragments must appear in the requested order", () => {
+  assert.equal(
+    matchesRegardingSearchPattern(
+      {
+        label: "1015426",
+        detail: "MA 2018 REXEL ST NAZ GUERANDE",
+      },
+      "*ma*26*rexel*",
+    ),
+    false,
+  );
+  assert.equal(
+    matchesRegardingSearchPattern(
+      {
+        label: "4031515",
+        detail: "MA 2026 REXEL LAGNY",
+      },
+      "*ma*26*rexel*",
+    ),
+    true,
+  );
+});
+
+test("ordered wildcard matching ignores case and accents", () => {
+  assert.equal(
+    matchesRegardingSearchPattern(
+      { label: "Compte", detail: "CÉDÉO LAGNY" },
+      "%edeo%gny%",
+    ),
+    true,
   );
 });
 
