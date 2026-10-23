@@ -27,7 +27,7 @@
   <FormSettings>
     <Form xsi:type="ItemRead">
       <DesktopSettings>
-        <SourceLocation DefaultValue="{{APP_URL}}/index.html" />
+        <SourceLocation DefaultValue="{{APP_URL}}/index.html?v={{APP_VERSION}}" />
         <RequestedHeight>450</RequestedHeight>
       </DesktopSettings>
     </Form>
@@ -92,7 +92,7 @@
           <bt:Image id="Icon48" DefaultValue="{{APP_URL}}/assets/icon-48.png" />
           <bt:Image id="Icon80" DefaultValue="{{APP_URL}}/assets/icon-80.png" />
         </bt:Images>
-        <bt:Urls><bt:Url id="Taskpane.Url" DefaultValue="{{APP_URL}}/index.html" /></bt:Urls>
+        <bt:Urls><bt:Url id="Taskpane.Url" DefaultValue="{{APP_URL}}/index.html?v={{APP_VERSION}}" /></bt:Urls>
         <bt:ShortStrings>
           <bt:String id="Description" DefaultValue="Ajoute et consulte les notes du rendez-vous Dynamics 365." />
           <bt:String id="GroupLabel" DefaultValue="RFR Notes CRM" />

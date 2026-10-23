@@ -26,6 +26,7 @@ import {
 import { TRACKED_TO_DYNAMICS_CATEGORY, trackOutlookAppointment } from "./graph.js";
 import { getAppointmentContext, markAppointmentAsLogged } from "./outlook.js";
 import { delay } from "./resilience.js";
+import { redirectToLatestVersion } from "./version-update.js";
 
 const app = document.querySelector("#app");
 let config;
@@ -792,4 +793,9 @@ async function start() {
   }
 }
 
-start();
+async function bootstrap() {
+  if (await redirectToLatestVersion(packageMetadata.version)) return;
+  await start();
+}
+
+bootstrap();
