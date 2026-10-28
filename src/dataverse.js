@@ -634,9 +634,10 @@ async function getEntitySetName(config, token, logicalName) {
   return metadata.EntitySetName;
 }
 
-export async function createRegardingNote(config, token, regarding, note, appointmentId) {
+export async function createRegardingNote(config, token, regarding, note, appointmentId, ensureCurrent = () => {}) {
   appointmentNoteReference(appointmentId); // Bloquer avant tout appel si la séance n’est pas identifiée.
   const entitySetName = await getEntitySetName(config, token, regarding.logicalName);
+  ensureCurrent();
   return dataverseFetch(config, token, "/annotations", {
     method: "POST",
     headers: {

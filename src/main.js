@@ -25,9 +25,10 @@ import {
   resolveAppointmentEditingTarget,
   verifyAppointmentNoteTarget,
 } from "./dataverse.js";
-import { TRACKED_TO_DYNAMICS_CATEGORY, isRecurringEvent, resolveOutlookEvent, trackOutlookAppointment } from "./graph.js";
-import { assertAppointmentContext, getAppointmentContext, markAppointmentAsLogged } from "./outlook.js";
-import { mobileAppointmentLink } from "./mobile-link.js";
+import { TRACKED_TO_DYNAMICS_CATEGORY, isRecurringEvent, resolveOutlookEvent, readTrackingState, trackOutlookAppointment } from "./graph.js";
+import { assertAppointmentContext, getAppointmentContext, watchAppointmentChanges, markAppointmentAsLogged } from "./outlook.js";
+import { mobileAppointmentLink, mobileLaunchLink } from "./mobile-link.js";
+import { AppointmentSession } from "./appointment-session.js";
 import { withoutAppointmentReference } from "./appointment-notes.js";
 import { delay } from "./resilience.js";
 import { redirectToLatestVersion } from "./version-update.js";
@@ -43,6 +44,37 @@ let regardingSearchResults = [];
 let interruptedDiagnostic = null;
 let actionBusy = false;
 let notesRequest = 0;
+let trackingState = null;
+let regardingRequest = 0;
+const session = new AppointmentSession();
+
+function rememberDraft() {
+  session.rememberDraft(document.querySelector("#noteSubject")?.value || "", document.querySelector("#noteText")?.value || "");
+}
+
+function showContextChange(error) {
+  if (error?.code !== "OUTLOOK_CONTEXT_CHANGED") return false;
+  const banner = document.querySelector("#contextStatus");
+  if (!banner) return false; // Before the first usable Office snapshot: startup retry screen.
+  session.invalidate();
+  if (banner) {
+    banner.textContent = "Le rendez-vous ouvert dans Outlook a changé. Actualisez pour afficher le rendez-vous courant. Votre brouillon reste conservé dans ce volet.";
+    banner.classList.remove("hidden");
+  }
+  const matchStatus = document.querySelector("#matchStatus");
+  matchStatus.textContent = "Informations à actualiser.";
+  matchStatus.className = "muted";
+  document.querySelector("#openMobileApp")?.classList.add("hidden");
+  updateActionControls();
+  return true;
+}
+
+function currentScope() { const scope = session.capture(); scope.ensure(); return scope; }
+function contextError(error, status) {
+  if (showContextChange(error)) return;
+  status.textContent = error.message || "L’opération a échoué. Actualisez avant de réessayer.";
+  status.className = "status-message warning";
+}
 
 function confirmAction(title, message, label = "Confirmer") {
   return new Promise((resolve) => {
@@ -70,17 +102,20 @@ function confirmAction(title, message, label = "Confirmer") {
 
 function updateActionControls() {
   const target = selectedAppointment?.editTarget;
-  const enabled = !actionBusy && Boolean(selectedAppointment && context.graphEvent && target?.kind !== "blocked");
+  const enabled = !actionBusy && !session.invalid && Boolean(selectedAppointment && context.graphEvent && target?.kind !== "blocked");
   const regarding = getRegardingReference(selectedAppointment);
   const noteEnabled = enabled && Boolean(regarding) && !selectedAppointment?.noteBlockedReason;
   for (const id of ["noteSubject", "noteText", "saveButton"]) document.querySelector("#" + id).disabled = !noteEnabled;
   const qualified = enabled && !target?.qualificationError && Boolean(qualificationOptions?.length);
   document.querySelector("#qualificationSelect").disabled = !qualified;
-  document.querySelector("#saveCrmFieldsButton").disabled = !qualified || document.querySelector("#qualificationSelect").value === "";
+  const value = document.querySelector("#qualificationSelect").value;
+  document.querySelector("#saveCrmFieldsButton").disabled = !qualified || value === "" || value === String(selectedAppointment?.[APPOINTMENT_QUALIFICATION_FIELD] ?? "");
   for (const id of ["regardingTypeSelect", "regardingSearchText", "searchRegardingButton"]) document.querySelector("#" + id).disabled = !enabled;
   document.querySelector("#saveRegardingButton").disabled = !enabled || !document.querySelector("#regardingResultSelect").value;
-  document.querySelector("#trackAppointmentButton").disabled = actionBusy;
+  document.querySelector("#trackAppointmentButton").disabled = actionBusy || session.invalid || !context.graphEvent;
   document.querySelector("#refreshAppointmentButton").disabled = actionBusy;
+  document.querySelector("#refreshNotesButton").disabled = !enabled;
+  document.querySelector("#openMobileApp")?.setAttribute("aria-disabled", String(actionBusy || session.invalid));
 }
 
 const PHASE_LABELS = {
@@ -253,36 +288,45 @@ function renderShell() {
     : "Test";
 
   app.innerHTML = `
-    <header class="app-header">
+    <header class="app-header sticky-header">
       <div>
         <p class="eyebrow">RDV &amp; Notes</p>
-        <h1>${escapeHtml(context.subject)}</h1>
-      </div>
-      <div class="header-status">
-        <span class="version-chip">v${escapeHtml(packageMetadata.version)} · ${escapeHtml(environmentLabel)}</span>
         <span class="status-chip" id="connectionStatus">Connexion…</span>
       </div>
+      <div class="header-status">
+        <button id="refreshAppointmentButton" class="compact-button" type="button">↻ Actualiser</button>
+        <details class="about-menu"><summary>À propos</summary><p>v${escapeHtml(packageMetadata.version)} · ${escapeHtml(environmentLabel)}</p>
+          <p>${escapeHtml(context.mailboxEmail)}</p></details>
+      </div>
     </header>
+
+    <p id="contextStatus" class="context-banner warning hidden" role="alert"></p>
 
     ${diagnosticMarkup(interruptedDiagnostic, "La tentative précédente a été interrompue par Outlook")}
 
     <section class="card appointment-summary">
+      <p class="eyebrow">Rendez-vous Outlook</p>
+      <h1>${escapeHtml(context.subject)}</h1>
       <dl>
         <div><dt>Début</dt><dd>${escapeHtml(formatDate(context.start))}</dd></div>
         <div><dt>Fin</dt><dd>${escapeHtml(formatDate(context.end))}</dd></div>
         ${context.location ? `<div><dt>Lieu</dt><dd>${escapeHtml(context.location)}</dd></div>` : ""}
         ${context.organizerName ? `<div><dt>Organisateur</dt><dd>${escapeHtml(context.organizerName)}</dd></div>` : ""}
       </dl>
-      <p id="recurrenceStatus" class="hint" role="status"></p>
+      <p id="recurrenceStatus" class="recurrence-badge" role="status"></p>
       ${context.isMobile ? `<a id="openMobileApp" class="secondary-button app-link hidden" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Ouvrir dans RDV &amp; Notes</a>
-        <p id="mobileLinkStatus" class="hint" role="status">Identification du rendez-vous pour l’application mobile…</p>` : ""}
+        <p id="mobileLinkStatus" class="hint" role="status">Identification du rendez-vous…</p>
+        <details class="mobile-help"><summary>Si Outlook bloque l’ouverture</summary>
+          <p>Certains Outlook mobiles empêchent de quitter leur fenêtre intégrée. Copiez ce lien HTTPS et ouvrez-le avec le navigateur du téléphone. Le lien des mails reste utilisable.</p>
+          <input id="mobileCopyLink" aria-label="Lien du rendez-vous pour l’application" readonly />
+          <button id="copyMobileLink" class="compact-button" type="button">Copier le lien</button>
+        </details>` : ""}
     </section>
 
     <section class="card" id="matchCard">
-      <h2>Rendez-vous associé dans Dynamics</h2>
+      <h2>Dynamics</h2>
       <p id="matchStatus" class="muted">Recherche en cours…</p>
-      <p id="seriesScopeStatus" class="hint" role="status"></p>
-      <button id="refreshAppointmentButton" class="secondary-button" type="button">Actualiser le rendez-vous</button>
+      <details id="seriesScopeDetails" class="hidden"><summary>Portée et exceptions de la série</summary><p id="seriesScopeStatus" class="hint" role="status"></p></details>
       <button id="trackAppointmentButton" class="primary-button hidden" type="button">
         Activer « ${TRACKED_TO_DYNAMICS_CATEGORY} »
       </button>
@@ -290,7 +334,7 @@ function renderShell() {
     </section>
 
     <section class="card" id="crmFieldsCard">
-      <h2>Champs Dynamics</h2>
+      <h2>Qualification et Concernant</h2>
       <label class="field">
         <span id="qualificationScopeLabel">Qualification du RDV</span>
         <select id="qualificationSelect" disabled>
@@ -298,13 +342,14 @@ function renderShell() {
         </select>
       </label>
       <button id="saveCrmFieldsButton" class="primary-button" type="button" disabled>
-        Mettre à jour la qualification
+        Enregistrer la qualification
       </button>
       <p id="crmFieldsStatus" class="status-message" role="status"></p>
 
       <div class="field-separator"></div>
       <h3 id="regardingScopeLabel">Concernant</h3>
       <p id="currentRegardingStatus" class="muted">Aucun rendez-vous CRM sélectionné.</p>
+      <details id="regardingEditor"><summary>Modifier le Concernant</summary>
       <label class="field">
         <span>Type</span>
         <select id="regardingTypeSelect" disabled>
@@ -329,10 +374,11 @@ function renderShell() {
         Affecter ce Concernant
       </button>
       <p id="regardingStatus" class="status-message" role="status"></p>
+      </details>
     </section>
 
     <section class="card" id="noteCard">
-      <h2>Ajouter une note simple</h2>
+      <details id="noteEditor"><summary>Ajouter une note manuelle</summary>
       <p id="noteTarget" class="muted">Sélectionnez d’abord un rendez-vous CRM.</p>
       <label class="field">
         <span>Titre</span>
@@ -344,23 +390,44 @@ function renderShell() {
       </label>
       <button id="saveButton" class="primary-button" type="button" disabled>Enregistrer la note dans Dynamics</button>
       <p id="saveStatus" class="status-message" role="status"></p>
+      </details>
     </section>
 
     <section class="card" id="historyCard">
-      <h2>Notes de ce rendez-vous</h2>
-      <p class="muted">Cette séance uniquement · 20 dernières notes maximum. Les anciennes notes sans référence de RDV restent accessibles dans Dynamics.</p>
+      <details id="historyDetails"><summary>Notes et CR de ce rendez-vous</summary>
+      <p class="hint">Cette séance uniquement · 20 dernières notes maximum.</p>
+      <button id="refreshNotesButton" class="compact-button" type="button">↻ Actualiser les notes</button>
       <div id="notesList"><p class="muted">Sélectionnez d’abord un rendez-vous CRM.</p></div>
+      <p class="hint">Les anciennes notes sans référence à cette séance restent accessibles dans Dynamics.</p>
+      </details>
     </section>`;
 
   document.querySelector("#trackAppointmentButton").addEventListener("click", trackAndWaitForAppointment);
   document.querySelector("#refreshAppointmentButton").addEventListener("click", refreshCurrentMeeting);
+  document.querySelector("#refreshNotesButton").addEventListener("click", refreshNotes);
+  document.querySelector("#historyDetails").addEventListener("toggle", () => {
+    if (document.querySelector("#historyDetails").open && !actionBusy && !session.invalid) refreshNotes();
+  });
+  for (const id of ["noteSubject", "noteText"]) document.querySelector("#" + id).addEventListener("input", rememberDraft);
   document.querySelector("#qualificationSelect").addEventListener("change", updateActionControls);
   document.querySelector("#openMobileApp")?.addEventListener("click", (event) => {
     try {
-      assertAppointmentContext(context);
+      currentScope();
       if (actionBusy || document.querySelector("#noteText").value.trim()) throw new Error("Terminez l’action et enregistrez votre note avant d’ouvrir l’application mobile.");
-      document.querySelector("#mobileLinkStatus").textContent = "Demande d’ouverture transmise. Utilisez le même compte Microsoft dans RDV & Notes.";
-    } catch (error) { event.preventDefault(); document.querySelector("#mobileLinkStatus").textContent = error.message; }
+      document.querySelector("#mobileLinkStatus").textContent = "Ouverture demandée. Si Outlook la bloque, utilisez l’aide ci-dessous ou le lien reçu par mail.";
+    } catch (error) { event.preventDefault(); contextError(error, document.querySelector("#mobileLinkStatus")); }
+  });
+  document.querySelector("#copyMobileLink")?.addEventListener("click", async () => {
+    try {
+      currentScope();
+      const input = document.querySelector("#mobileCopyLink");
+      if (!input.value) return;
+      input.select();
+      await navigator.clipboard.writeText(input.value);
+      document.querySelector("#mobileLinkStatus").textContent = "Lien copié. Ouvrez-le avec le navigateur du téléphone.";
+    } catch (error) {
+      if (!showContextChange(error)) document.querySelector("#mobileLinkStatus").textContent = "Sélectionnez le lien ci-dessous puis choisissez Copier.";
+    }
   });
   document.querySelector("#saveCrmFieldsButton").addEventListener("click", saveCrmFields);
   document.querySelector("#regardingTypeSelect").addEventListener("change", () => {
@@ -377,12 +444,8 @@ function renderShell() {
   if (interruptedDiagnostic) clearInterruptedStartupDiagnostic();
 }
 
-function candidateText(candidate) {
-  const start = formatDate(candidate.scheduledstart);
-  return `${candidate.subject || "Sans objet"} — ${start} — ${getRegardingLabel(candidate)}`;
-}
-
-async function renderCandidates() {
+async function renderCandidates(scope = currentScope()) {
+  scope.ensure();
   const status = document.querySelector("#matchStatus");
   const trackButton = document.querySelector("#trackAppointmentButton");
   const candidate = chooseUnambiguousCandidate(candidates);
@@ -392,11 +455,12 @@ async function renderCandidates() {
   const strongCandidates = candidates.filter((candidate) => candidate.matchScore >= 85);
 
   if (candidate) {
-    selectedAppointment = await resolveAppointmentEditingTarget(config, accessToken, candidate, isRecurringEvent(context.graphEvent));
-    status.textContent = `Correspondance fiable : ${candidateText(selectedAppointment)}`;
+    const resolved = await resolveAppointmentEditingTarget(config, accessToken, candidate, isRecurringEvent(context.graphEvent));
+    scope.ensure();
+    selectedAppointment = resolved;
+    status.textContent = "✓ Rendez-vous synchronisé avec Dynamics";
     status.className = "success";
-    trackButton.classList.toggle("hidden", !isRecurringEvent(context.graphEvent));
-    trackButton.textContent = "Vérifier / activer le suivi de toute la série";
+    trackButton.classList.add("hidden");
   } else if (strongCandidates.length > 1) {
     status.textContent =
       "Plusieurs copies CRM ont exactement le même sujet et les mêmes horaires. " +
@@ -408,28 +472,38 @@ async function renderCandidates() {
       "Aucun rendez-vous CRM ne correspond exactement au sujet et aux horaires Outlook.";
     status.className = "warning";
     trackButton.classList.remove("hidden");
-    trackButton.textContent = isRecurringEvent(context.graphEvent) ? "Activer le suivi de toute la série" : "Activer le suivi Dynamics 365";
+    trackButton.textContent = trackingState?.tracked ? "Vérifier la synchronisation Dynamics"
+      : isRecurringEvent(context.graphEvent) ? "Activer le suivi de toute la série" : "Activer le suivi Dynamics 365";
+    if (trackingState?.tracked) status.textContent = "Suivi Outlook activé · synchronisation Dynamics non encore confirmée.";
   }
 
   updateSelectedAppointment();
 }
 
-async function refreshGraphContext() {
+async function refreshGraphContext(scope = currentScope()) {
+  scope.ensure();
   context.graphEvent = null;
+  trackingState = null;
   const link = document.querySelector("#openMobileApp");
   link?.classList.add("hidden");
   try {
     const token = await getGraphAccessToken(config);
-    const event = await resolveOutlookEvent(token, context);
-    assertAppointmentContext(context);
+    const event = await resolveOutlookEvent(token, scope.context);
+    scope.ensure();
     context.graphEvent = event;
     document.querySelector("#recurrenceStatus").textContent = isRecurringEvent(event)
-      ? "↻ Rendez-vous récurrent — suivi et informations Dynamics sur toute la série." : "Rendez-vous non récurrent.";
+      ? "↻ Rendez-vous récurrent · modifications Dynamics sur la série" : "Rendez-vous simple";
     if (link) {
-      link.href = mobileAppointmentLink(event.id); link.classList.remove("hidden");
-      document.querySelector("#mobileLinkStatus").textContent = "Ouvre cette séance à l’étape Dynamics, sans démarrer d’enregistrement. L’association Android au domaine doit être activée.";
+      const isAndroid = Office.context.platform === "Android" || /OutlookAndroid/i.test(Office.context.mailbox.diagnostics?.hostName || "");
+      link.href = mobileLaunchLink(event.id, { isAndroid }); link.classList.remove("hidden");
+      document.querySelector("#mobileCopyLink").value = mobileAppointmentLink(event.id);
+      document.querySelector("#mobileLinkStatus").textContent = "Ouvre cette séance à l’étape Dynamics dans l’application Android.";
     }
+    try { trackingState = await readTrackingState(token, event); scope.ensure(); }
+    catch (error) { scope.ensure(); document.querySelector("#trackingStatus").textContent = "Statut de catégorie non vérifié. Une activation relira la série avant toute modification."; }
   } catch (error) {
+    if (showContextChange(error)) throw error;
+    scope.ensure();
     document.querySelector("#recurrenceStatus").textContent = "Portée Outlook non vérifiée : modifications bloquées. " + error.message;
     if (link) document.querySelector("#mobileLinkStatus").textContent = "Ouverture mobile indisponible : le rendez-vous n’a pas pu être identifié avec certitude.";
   }
@@ -437,20 +511,59 @@ async function refreshGraphContext() {
 
 async function refreshCurrentMeeting() {
   if (actionBusy) return;
+  rememberDraft();
   actionBusy = true; updateActionControls();
   try {
-    assertAppointmentContext(context);
-    await refreshGraphContext();
-    candidates = await findAppointmentCandidates(config, accessToken, context);
-    await renderCandidates();
-    if (selectedAppointment) await Promise.all([refreshCrmFields(), refreshNotes()]);
+    // Always reacquire Office's current item. Testing the stale snapshot here
+    // previously made every subsequent refresh fail permanently.
+    session.invalidate();
+    const freshContext = await getAppointmentContext();
+    context = freshContext;
+    session.use(context);
+    notesRequest++;
+    candidates = []; selectedAppointment = null; qualificationOptions = null;
+    renderShell();
+    restoreDraft();
+    updateActionControls();
+    const scope = currentScope();
+    accessToken = await getDataverseAccessToken(config);
+    scope.ensure();
+    showConnected();
+    await loadCurrentMeeting(scope);
   } catch (error) {
-    document.querySelector("#matchStatus").textContent = error.message;
+    contextError(error, document.querySelector("#matchStatus"));
   } finally { actionBusy = false; updateActionControls(); }
+}
+
+function restoreDraft() {
+  const draft = session.draft();
+  if (!draft) return;
+  document.querySelector("#noteSubject").value = draft.subject;
+  document.querySelector("#noteText").value = draft.text;
+  document.querySelector("#noteEditor").open = true;
+}
+
+function showConnected() {
+  document.querySelector("#connectionStatus").textContent = "Microsoft connecté";
+  document.querySelector("#connectionStatus").classList.add("connected");
+}
+
+async function loadCurrentMeeting(scope) {
+  await refreshGraphContext(scope);
+  scope.ensure();
+  const found = await findAppointmentCandidates(config, accessToken, scope.context);
+  scope.ensure();
+  candidates = found;
+  await renderCandidates(scope);
+  if (selectedAppointment) {
+    await refreshCrmFields(scope);
+    if (document.querySelector("#historyDetails").open) await refreshNotes();
+  }
 }
 
 async function trackAndWaitForAppointment() {
   if (actionBusy) return;
+  if (trackingState?.tracked) { await refreshCurrentMeeting(); return; }
   const button = document.querySelector("#trackAppointmentButton");
   const status = document.querySelector("#trackingStatus");
   actionBusy = true; updateActionControls();
@@ -458,15 +571,19 @@ async function trackAndWaitForAppointment() {
   status.className = "status-message muted";
 
   try {
+    const scope = currentScope();
     const graphToken = await getGraphAccessToken(config);
-    const event = await resolveOutlookEvent(graphToken, context);
-    assertAppointmentContext(context);
+    const event = await resolveOutlookEvent(graphToken, scope.context);
+    scope.ensure();
     const series = isRecurringEvent(event);
     if (!await confirmAction(series ? "Suivre toute la série ?" : "Activer le suivi Dynamics ?",
       series ? "La catégorie sera activée sur toute la série dans VOTRE calendrier, organisateur ou invité. Autres catégories et exceptions conservées. La synchronisation Dynamics sera ensuite vérifiée."
         : "La catégorie sera ajoutée uniquement à ce rendez-vous dans votre calendrier. Les autres catégories seront conservées.", series ? "Suivre toute la série" : "Activer le suivi")) return;
-    const tracking = await trackOutlookAppointment(graphToken, context, event, () => assertAppointmentContext(context));
+    scope.ensure();
+    const tracking = await trackOutlookAppointment(graphToken, scope.context, event, scope.ensure);
+    scope.ensure();
     context.graphEvent = tracking.event;
+    trackingState = { tracked: true };
     status.textContent = tracking.alreadyTracked
       ? `La catégorie « ${TRACKED_TO_DYNAMICS_CATEGORY} » est déjà active. Attente de la synchronisation CRM…`
       : `Catégorie « ${TRACKED_TO_DYNAMICS_CATEGORY} » activée. Attente de la synchronisation CRM…`;
@@ -474,12 +591,15 @@ async function trackAndWaitForAppointment() {
     status.className = "status-message success";
 
     for (let attempt = 1; attempt <= 12; attempt += 1) {
-      candidates = await findAppointmentCandidates(config, accessToken, context);
+      scope.ensure();
+      const found = await findAppointmentCandidates(config, accessToken, scope.context);
+      scope.ensure();
+      candidates = found;
       if (chooseUnambiguousCandidate(candidates)) {
-        await renderCandidates();
+        await renderCandidates(scope);
         status.textContent = "Le rendez-vous est maintenant disponible dans le CRM.";
         status.className = "status-message success";
-        await Promise.all([refreshCrmFields(), refreshNotes()]);
+        await refreshCrmFields(scope);
         return;
       }
 
@@ -492,20 +612,19 @@ async function trackAndWaitForAppointment() {
 
     status.textContent =
       "La catégorie est active, mais le CRM n’a pas encore terminé la synchronisation. " +
-      "Vous pouvez fermer puis rouvrir ce panneau plus tard, ou relancer la recherche.";
+      "Cliquez sur Actualiser pour vérifier à nouveau plus tard.";
     status.className = "status-message warning";
-    button.textContent = "Rechercher à nouveau dans le CRM";
+    button.textContent = "Vérifier la synchronisation Dynamics";
   } catch (error) {
     console.error(error);
-    status.textContent =
-      `${error.message} L’autorisation Microsoft Graph Calendars.ReadWrite peut devoir être accordée par un administrateur.`;
-    status.className = "status-message warning";
+    contextError(error, status);
   } finally {
     actionBusy = false; updateActionControls();
   }
 }
 
 function resetRegardingSearch(clearText = true) {
+  regardingRequest++;
   regardingSearchResults = [];
   const text = document.querySelector("#regardingSearchText");
   const result = document.querySelector("#regardingResultSelect");
@@ -531,6 +650,8 @@ function updateRegardingSearchPlaceholder() {
 }
 
 async function searchRegarding() {
+  if (actionBusy || session.invalid) return;
+  const request = ++regardingRequest;
   const logicalName = document.querySelector("#regardingTypeSelect").value;
   const searchText = document.querySelector("#regardingSearchText").value.trim();
   const searchButton = document.querySelector("#searchRegardingButton");
@@ -551,12 +672,16 @@ async function searchRegarding() {
   document.querySelector("#saveRegardingButton").disabled = true;
 
   try {
-    regardingSearchResults = await searchRegardingRecords(
+    const scope = currentScope();
+    const results = await searchRegardingRecords(
       config,
       accessToken,
       logicalName,
       searchText,
     );
+    if (request !== regardingRequest || !resultSelect.isConnected || logicalName !== document.querySelector("#regardingTypeSelect").value) return;
+    scope.ensure();
+    regardingSearchResults = results;
     if (!regardingSearchResults.length) {
       status.textContent = "Aucun résultat trouvé.";
       status.className = "status-message warning";
@@ -575,10 +700,9 @@ async function searchRegarding() {
     status.className = "status-message muted";
   } catch (error) {
     console.error(error);
-    status.textContent = error.message || "La recherche a échoué.";
-    status.className = "status-message warning";
+    if (request === regardingRequest && status.isConnected) contextError(error, status);
   } finally {
-    searchButton.disabled = !selectedAppointment;
+    updateActionControls();
     searchButton.textContent = "Rechercher dans le CRM";
   }
 }
@@ -601,28 +725,30 @@ async function saveRegarding() {
   status.textContent = "";
 
   try {
-    assertAppointmentContext(context);
+    const scope = currentScope();
+    const appointment = selectedAppointment;
     const series = selectedAppointment.editTarget?.kind === "series";
     if (series && !await confirmAction("Modifier le Concernant de toute la série ?",
       `La série Dynamics entière sera rattachée à « ${regarding.label} ». Les exceptions sont conservées ; aucune note existante n’est déplacée.`, "Modifier toute la série")) return;
     accessToken = await getDataverseAccessToken(config);
+    scope.ensure();
     const updatedAppointment = await updateAppointmentRegarding(
       config,
       accessToken,
-      selectedAppointment.activityid,
+      appointment.activityid,
       regarding,
-      selectedAppointment,
-      () => assertAppointmentContext(context),
+      appointment,
+      scope.ensure,
     );
+    scope.ensure();
     selectedAppointment = updatedAppointment;
     updateSelectedAppointment();
     status.textContent = `Concernant ${series ? "de toute la série " : ""}confirmé : ${getRegardingLabel(selectedAppointment)}.`;
     status.className = "status-message success";
-    await refreshNotes();
+    if (document.querySelector("#historyDetails").open) await refreshNotes();
   } catch (error) {
     console.error(error);
-    status.textContent = error.message || "La mise à jour du Concernant a échoué.";
-    status.className = "status-message warning";
+    contextError(error, status);
   } finally {
     actionBusy = false; updateActionControls();
     button.textContent = selectedAppointment?.editTarget?.kind === "series" ? "Affecter à toute la série" : "Affecter ce Concernant";
@@ -630,6 +756,7 @@ async function saveRegarding() {
 }
 
 function updateSelectedAppointment() {
+  for (const id of ["crmFieldsCard", "noteCard", "historyCard"]) document.querySelector("#" + id).classList.toggle("hidden", !selectedAppointment);
   const regarding = getRegardingReference(selectedAppointment);
   const noteEnabled = Boolean(selectedAppointment && regarding);
   document.querySelector("#noteSubject").disabled = !noteEnabled;
@@ -692,6 +819,8 @@ function updateSelectedAppointment() {
   document.querySelector("#saveCrmFieldsButton").textContent = series ? "Modifier la qualification de toute la série" : "Mettre à jour la qualification";
   document.querySelector("#saveRegardingButton").textContent = series ? "Affecter à toute la série" : "Affecter ce Concernant";
   document.querySelector("#seriesScopeStatus").textContent = target?.kind === "blocked" ? target.reason : selectedAppointment?.seriesNotice || "";
+  document.querySelector("#seriesScopeDetails").classList.toggle("hidden", !document.querySelector("#seriesScopeStatus").textContent);
+  if (target?.kind === "blocked") document.querySelector("#seriesScopeDetails").open = true;
   if (selectedAppointment?.noteBlockedReason) {
     noteTarget.textContent = selectedAppointment.noteBlockedReason;
     noteTarget.className = "warning";
@@ -703,7 +832,7 @@ function qualificationLabel(value) {
   return qualificationOptions?.find((option) => option.value === Number(value))?.label || "";
 }
 
-async function refreshCrmFields() {
+async function refreshCrmFields(scope = currentScope()) {
   const appointmentId = selectedAppointment?.activityid;
   const select = document.querySelector("#qualificationSelect");
   const button = document.querySelector("#saveCrmFieldsButton");
@@ -717,8 +846,10 @@ async function refreshCrmFields() {
   status.textContent = "";
 
   try {
-    qualificationOptions = await getAppointmentQualificationOptions(config, accessToken, selectedAppointment);
-    if (selectedAppointment?.activityid !== appointmentId) return;
+    const options = await getAppointmentQualificationOptions(config, accessToken, selectedAppointment);
+    scope.ensure();
+    if (selectedAppointment?.activityid !== appointmentId || !select.isConnected) return;
+    qualificationOptions = options;
 
     select.innerHTML = [
       '<option value="">— Sélectionner —</option>',
@@ -741,8 +872,7 @@ async function refreshCrmFields() {
     status.className = "status-message muted";
   } catch (error) {
     console.error(error);
-    status.textContent = `Impossible de charger les qualifications : ${error.message}`;
-    status.className = "status-message warning";
+    if (select.isConnected) contextError(error, status);
   } finally {
     updateActionControls();
   }
@@ -766,27 +896,29 @@ async function saveCrmFields() {
   status.textContent = "";
 
   try {
-    assertAppointmentContext(context);
+    const scope = currentScope();
+    const appointment = selectedAppointment;
     const series = selectedAppointment.editTarget?.kind === "series";
     if (series && !await confirmAction("Modifier la qualification de toute la série ?",
       "La modification vise le maître Dynamics de toute la série. Les exceptions existantes sont conservées ; la propagation à chaque séance n’est pas garantie.", "Modifier toute la série")) return;
     accessToken = await getDataverseAccessToken(config);
+    scope.ensure();
     const updatedAppointment = await updateAppointmentQualification(
       config,
       accessToken,
-      selectedAppointment.activityid,
+      appointment.activityid,
       value,
-      selectedAppointment,
-      () => assertAppointmentContext(context),
+      appointment,
+      scope.ensure,
     );
+    scope.ensure();
     selectedAppointment = updatedAppointment;
     updateSelectedAppointment();
     status.textContent = `Qualification ${series ? "de toute la série " : ""}confirmée : ${qualificationLabel(value)}. ${selectedAppointment.seriesNotice || ""}`;
     status.className = "status-message success";
   } catch (error) {
     console.error(error);
-    status.textContent = error.message || "La mise à jour de la qualification a échoué.";
-    status.className = "status-message warning";
+    contextError(error, status);
   } finally {
     actionBusy = false; updateActionControls();
     button.textContent = selectedAppointment?.editTarget?.kind === "series" ? "Modifier la qualification de toute la série" : "Mettre à jour la qualification";
@@ -794,6 +926,7 @@ async function saveCrmFields() {
 }
 
 async function refreshNotes() {
+  if (!selectedAppointment || session.invalid) return;
   const request = ++notesRequest;
   const appointment = selectedAppointment;
   const originalContext = context;
@@ -810,9 +943,10 @@ async function refreshNotes() {
   }
   notesList.innerHTML = '<p class="muted">Chargement des notes…</p>';
   try {
+    const scope = currentScope();
     const notes = await getAppointmentNotes(config, accessToken, regarding, appointment.activityid);
     if (request !== notesRequest || selectedAppointment !== appointment || context !== originalContext || !notesList.isConnected) return;
-    assertAppointmentContext(originalContext);
+    scope.ensure();
     if (!notes.length) {
       notesList.innerHTML = '<p class="muted">Aucune note identifiée pour cette séance.</p>';
       return;
@@ -823,13 +957,13 @@ async function refreshNotes() {
           <article class="note-item">
             <h3>${escapeHtml(note.subject || "Note")}</h3>
             <time>${escapeHtml(formatDate(note.createdon))}</time>
-            <div class="note-content">${renderSafeNoteHtml(withoutAppointmentReference(note.notetext))}</div>
+            <details><summary>Lire la note / le CR</summary><div class="note-content">${renderSafeNoteHtml(withoutAppointmentReference(note.notetext))}</div></details>
           </article>`,
       )
       .join("");
   } catch (error) {
     if (request !== notesRequest || selectedAppointment !== appointment || context !== originalContext || !notesList.isConnected) return;
-    notesList.innerHTML = `<p class="warning">${escapeHtml(error.message)}</p>`;
+    if (!showContextChange(error)) notesList.innerHTML = `<p class="warning">${escapeHtml(error.message)}</p>`;
   }
 }
 
@@ -866,33 +1000,36 @@ async function saveNote() {
   try {
     const appointment = selectedAppointment;
     const originalContext = context;
-    assertAppointmentContext(context);
+    const scope = currentScope();
     if (!context.graphEvent) throw new Error("La portée Outlook doit être vérifiée avant de créer une note.");
     if (!await confirmAction("Enregistrer cette note manuelle ?", `La note sera rattachée à « ${regarding.label} », pas à toutes les séances d’une série. Aucun audio ni génération automatique.`, "Enregistrer la note")) return;
     accessToken = await getDataverseAccessToken(config);
     if (selectedAppointment !== appointment || context !== originalContext) throw new Error("Le rendez-vous sélectionné a changé. Aucun nouvel envoi.");
     const verified = await verifyAppointmentNoteTarget(config, accessToken, appointment);
-    assertAppointmentContext(context);
+    scope.ensure();
     if (selectedAppointment !== appointment || context !== originalContext) throw new Error("Le rendez-vous sélectionné a changé. Aucun nouvel envoi.");
     await createRegardingNote(config, accessToken, verified, {
       subject: subject || `Note — ${context.subject}`,
       text,
-    }, appointment.activityid);
+    }, appointment.activityid, scope.ensure);
     let markerWarning = "";
     try {
-      await markAppointmentAsLogged();
+      await markAppointmentAsLogged(originalContext);
     } catch (error) {
       console.warn("La note est créée, mais le libellé Outlook n’a pas pu être actualisé.", error);
       markerWarning = " La note est bien enregistrée, mais Outlook n’a pas actualisé le libellé Journal/Afficher.";
     }
+    // The POST may have completed just before an Outlook item change. Never
+    // duplicate a successfully created note, nor clear another item's draft.
+    session.drafts.delete(session.key(originalContext));
+    if (context !== originalContext) return;
     document.querySelector("#noteText").value = "";
     status.textContent = `Note enregistrée sur ${regarding.label}.${markerWarning}`;
     status.className = "status-message success";
-    await refreshNotes();
+    if (document.querySelector("#historyDetails").open && !session.invalid) await refreshNotes();
   } catch (error) {
     console.error(error);
-    status.textContent = error.message || "L’enregistrement a échoué.";
-    status.className = "status-message warning";
+    contextError(error, status);
   } finally {
     actionBusy = false; updateActionControls();
     button.textContent = "Enregistrer la note dans Dynamics";
@@ -919,25 +1056,31 @@ async function start() {
         );
       },
     });
+    session.use(context);
     renderShell();
+    actionBusy = true; updateActionControls();
+    watchAppointmentChanges(onOutlookItemChanged);
+    globalThis.addEventListener("focus", onOutlookItemChanged);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) onOutlookItemChanged(); });
 
     recordStartupPhase("authentication");
     accessToken = await getDataverseAccessToken(config);
-    document.querySelector("#connectionStatus").textContent = "CRM connecté";
-    document.querySelector("#connectionStatus").classList.add("connected");
-
-    await refreshGraphContext();
-
-    recordStartupPhase("dataverse_search");
-    candidates = await findAppointmentCandidates(config, accessToken, context);
-    await renderCandidates();
-    if (selectedAppointment) {
-      recordStartupPhase("dataverse_notes");
-      await Promise.all([refreshCrmFields(), refreshNotes()]);
-    }
+    showConnected();
+    await loadCurrentMeeting(currentScope());
     completeStartupDiagnostic();
   } catch (error) {
-    showFatalError(error);
+    if (!showContextChange(error)) { showFatalError(error); return; }
+  } finally { actionBusy = false; if (document.querySelector("#trackAppointmentButton")) updateActionControls(); }
+}
+
+function onOutlookItemChanged() {
+  if (!context || session.invalid) return;
+  try { assertAppointmentContext(context); }
+  catch (error) {
+    rememberDraft();
+    showContextChange(error);
+    // Do not replace the form while a confirmation or a write is in progress.
+    if (!actionBusy) void refreshCurrentMeeting();
   }
 }
 

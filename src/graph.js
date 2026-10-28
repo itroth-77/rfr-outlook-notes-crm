@@ -71,6 +71,13 @@ export const isRecurringEvent = (event) => Boolean(event && event.type !== "sing
 const tracked = (event) => (event.categories || []).some((value) =>
   value.trim().toLocaleLowerCase("fr-FR") === TRACKED_TO_DYNAMICS_CATEGORY.toLocaleLowerCase("fr-FR"));
 
+export async function readTrackingState(token, event) {
+  if (!isRecurringEvent(event)) return { tracked: tracked(event), scope: "appointment" };
+  const master = event.type === "seriesMaster" ? event : await readEvent(token, event.seriesMasterId);
+  if (master.type !== "seriesMaster") throw new Error("Le maître de série Outlook n’est pas vérifiable.");
+  return { tracked: tracked(master), scope: "series" };
+}
+
 async function readEvent(token, id) {
   if (typeof id !== "string" || !id || id.length > 2048 || /[\x00-\x1f\x7f]/.test(id)) throw new Error("Identifiant Outlook invalide.");
   const event = await graphFetch(token, eventPath(id) + "?$select=" + EVENT_SELECT, { headers: { Prefer: 'outlook.timezone="UTC"' } });
@@ -93,7 +100,7 @@ export async function resolveOutlookEvent(token, context) {
   }
   if (!id) throw new Error("Enregistrez puis rouvrez ce rendez-vous pour obtenir son identifiant Outlook.");
   const event = await readEvent(token, id);
-  if (!chooseExactGraphEvent([event], context)) throw new Error("Le rendez-vous a changé depuis l’ouverture du volet. Fermez puis rouvrez le complément.");
+  if (!chooseExactGraphEvent([event], context)) throw new Error("Le sujet ou les horaires Outlook ont changé. Enregistrez le rendez-vous puis cliquez sur Actualiser.");
   return event;
 }
 

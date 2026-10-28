@@ -1,4 +1,52 @@
-# RDV & Notes — complément Outlook 2.3.3
+# RDV & Notes — complément Outlook 2.3.4
+
+## Mise à jour du 28 octobre 2026
+
+Publication 2.3.4 autorisée par l'utilisateur. Manifeste 2.3.4.0, même GUID,
+mêmes permissions et logo. Uniquement le rendez-vous ouvert dans Outlook :
+pas d'agenda par semaine, ni de fonctions audio/transcription/génération de CR.
+
+- Actualiser relit le contexte Office, puis Graph et Dynamics. Plus de boucle
+  demandant de fermer/rouvrir le complément. Quand ItemChanged est disponible,
+  un changement réel recharge le RDV hors opération active ; sinon Actualiser
+  reste disponible. Un retour de focus contrôle également l'identité.
+- Les réponses tardives ne peuvent pas sélectionner l'ancien rendez-vous ni
+  modifier le nouveau. L'identité est revérifiée avant les PATCH/POST. Les
+  brouillons de notes sont gardés uniquement en mémoire, par compte et séance,
+  jusqu'à fermeture du volet. Pas de sauvegarde persistante de ces textes.
+- En-tête fixe avec Actualiser ; version dans À propos ; sujet, horaires et
+  récurrence dans la fiche RDV. Pas d'activation quand le RDV Dynamics est trouvé.
+  Catégorie déjà active mais CRM absent : Vérifier sans refaire le suivi.
+- Qualification, Concernant, note manuelle et notes/CR de cette séance. Éditeur
+  Concernant et note dépliables, historique chargé seulement à la demande, texte
+  de chaque note dépliable. Les règles sûres de série et de notes restent celles
+  décrites ci-dessous.
+- Ouverture Android : lien intent explicite vers `fr.roth.compterendu`, portant
+  la même route HTTPS `/open?eventId=...&view=crm` reconnue par l'APK. Aucun jeton,
+  contenu CRM, changement d'APK ou d'Hyperion. Pas de page intermédiaire dans ce
+  parcours. Le domaine cr-api n'est plus déclaré comme navigation interne du
+  manifeste : réinstaller le XML pour appliquer ce changement.
+
+**Limite mobile à tester, non résoluble de façon garantie par le complément :**
+Outlook Android ne propose pas l'API OpenBrowserWindowApi. Certains WebViews
+refusent aussi les intents externes ; l'essai sur le téléphone reste nécessaire.
+Le lien HTTPS peut être copié depuis l'aide et ouvert dans le navigateur du
+téléphone. Les liens reçus par mail restent inchangés. Aucune redirection
+automatique différée, aucun schéma natif injecté dans une page Hyperion, aucune
+modification des règles de sécurité Outlook/Intune.
+
+Contrôles : 84 tests simulés, compilation Vite et validation du manifeste Office.
+Aucun rendez-vous réel ni appel IA pour les tests. Tester le changement A/B/A,
+le brouillon, l'organisateur et l'invité sur série/exception, les refus de droits,
+la note/les CR de la séance et l'ouverture Android sur la flotte pilote.
+
+Références officielles :
+- https://learn.microsoft.com/en-us/javascript/api/outlook/office.mailbox#outlook-office-mailbox-addhandlerasync-member(1)
+- https://learn.microsoft.com/en-us/office/dev/add-ins/reference/requirement-sets/open-browser-window-api-requirement-sets
+- https://learn.microsoft.com/en-us/office/dev/add-ins/develop/add-in-manifests#specify-domains-you-want-to-open-in-the-add-in-window
+- https://developer.chrome.com/docs/android/intents
+
+## Historique 2.3.3
 
 Préparation locale du 27 octobre 2026 ; publication autorisée le 28 octobre 2026.
 L'ancien nom RFR Notes CRM est

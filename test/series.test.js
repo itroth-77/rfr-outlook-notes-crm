@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolveOutlookEvent, trackOutlookAppointment } from "../src/graph.js";
+import { resolveOutlookEvent, readTrackingState, trackOutlookAppointment } from "../src/graph.js";
 import { isOutlookMobile, getRestItemId, assertAppointmentContext } from "../src/outlook.js";
 import { mobileAppointmentLink } from "../src/mobile-link.js";
 import { resolveAppointmentEditingTarget, updateAppointmentQualification, updateAppointmentRegarding,
@@ -55,6 +55,16 @@ test("serie deja suivie : aucune ecriture, occurrence non categorisee preservee"
     const result = await trackOutlookAppointment("fake", context, clone(f.event));
     assert.equal(f.calls.filter((call) => call.method === "PATCH").length, 0);
     assert.match(result.notice, /exception/); assert.deepEqual(f.event.categories, ["Client"]);
+  });
+});
+
+for (const masterTracked of [false, true]) test(`statut de suivi : lire le maitre ${masterTracked}, pas seulement la categorie occurrence`, async () => {
+  const f = graphFixture({ type: 'exception', tracked: masterTracked });
+  await withFetch(f.fetch, async () => {
+    const state = await readTrackingState('fake', f.event);
+    assert.equal(state.tracked, masterTracked);
+    assert.equal(state.scope, 'series');
+    assert.equal(f.calls.length, 1); assert.ok(!f.calls.some((call) => call.method === 'PATCH'));
   });
 });
 

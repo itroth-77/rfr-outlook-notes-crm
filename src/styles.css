@@ -231,3 +231,33 @@ input:focus, select:focus, textarea:focus {
   .appointment-summary dl { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; }
   dl > div + div { margin-top: 0; }
 }
+
+/* A single selected Outlook meeting: compact summary + Dynamics actions. */
+.sticky-header { position: sticky; top: 0; z-index: 10; background: #f4f7fb; padding: 10px 0; align-items: center; }
+.sticky-header.app-header { flex-direction: row; }
+.sticky-header .header-status { width: auto; flex-direction: column; align-items: flex-end; gap: 4px; }
+.status-chip { display: inline-block; font-size: 12px; padding: 4px 8px; }
+.compact-button { min-height: 42px; padding: 8px 12px; border: 1px solid #3860b2; border-radius: 9px; color: #174ea6; background: white; font-weight: 700; cursor: pointer; }
+.compact-button:disabled { color: #667085; border-color: #cfd7e6; cursor: default; }
+.about-menu { position: relative; font-size: 13px; text-align: right; }
+.about-menu p { margin: 4px 0; overflow-wrap: anywhere; }
+.about-menu[open] { max-width: 230px; }
+.appointment-summary h1 { margin-bottom: 14px; font-size: 22px; overflow-wrap: anywhere; }
+.appointment-summary dd { font-size: 16px; }
+.appointment-summary dt { font-size: 13px; }
+.appointment-summary dl { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.appointment-summary dl > div { margin-top: 0; }
+.recurrence-badge { font-size: 13px; color: #344054; padding: 6px 8px; background: #f2f4f7; border-radius: 8px; }
+.context-banner { padding: 12px; border: 1px solid #fdb022; border-radius: 10px; background: #fffaeb; line-height: 1.5; }
+details > summary { cursor: pointer; font-weight: 700; color: #174ea6; min-height: 36px; padding: 5px 0; }
+details[open] > summary { margin-bottom: 6px; }
+.mobile-help { font-size: 14px; line-height: 1.45; }
+.mobile-help input { font-size: 13px; margin-bottom: 8px; }
+.status-message:empty, .recurrence-badge:empty { display: none; }
+.primary-button, .secondary-button { min-height: 46px; font-size: 16px; margin-top: 12px; }
+.field > span { font-size: 15px; }
+input, select, textarea { min-height: 46px; font-size: 16px; }
+button:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
+.note-content { font-size: 15px; }
+.note-content table { display: block; overflow-x: auto; }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }

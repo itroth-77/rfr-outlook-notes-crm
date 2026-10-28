@@ -19,7 +19,6 @@
   <AppDomains>
     <AppDomain>{{APP_ORIGIN}}</AppDomain>
     <AppDomain>{{DATAVERSE_URL}}</AppDomain>
-    <AppDomain>https://cr-api.roth-france.fr</AppDomain>
   </AppDomains>
 
   <Hosts><Host Name="Mailbox" /></Hosts>

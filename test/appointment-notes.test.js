@@ -54,3 +54,15 @@ test('nouvelle note : reste sur le Concernant, avec reference de la seule seance
   assert.equal(payload.notetext, withAppointmentReference('Observation', id));
   assert.equal(payload['objectid_account@odata.bind'], `/accounts(${target.id})`);
 });
+
+test('note : contexte revalide apres metadonnees et immediatement avant POST', async () => {
+  let posts = 0;
+  await withFetch(async (_url, options) => {
+    if (options?.method === 'POST') { posts++; return Response.json({}); }
+    return Response.json({ EntitySetName: 'accounts' });
+  }, async () => {
+    await assert.rejects(createRegardingNote(config, 'fake', target, { subject: 'Note', text: 'Texte' }, id,
+      () => { throw new Error('appointment changed'); }), /appointment changed/);
+    assert.equal(posts, 0);
+  });
+});

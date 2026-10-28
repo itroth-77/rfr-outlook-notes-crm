@@ -142,13 +142,30 @@ export function getRestItemId(item, office = globalThis.Office) {
   if (isOutlookMobile(office)) return item.itemId;
   const mailbox = office?.context?.mailbox;
   if (typeof mailbox?.convertToRestId !== "function") return "";
-  return mailbox.convertToRestId(item.itemId, office.MailboxEnums.RestVersion.v2_0);
+  try { return mailbox.convertToRestId(item.itemId, office.MailboxEnums.RestVersion.v2_0); }
+  catch { return ""; }
 }
 
 export function assertAppointmentContext(context, office = globalThis.Office) {
-  if (!context?.itemId || office?.context?.mailbox?.item?.itemId !== context.itemId) {
-    throw new Error("Le rendez-vous ouvert dans Outlook a changé. Fermez puis rouvrez le complément avant de continuer.");
+  const current = office?.context?.mailbox?.item;
+  const mailboxEmail = office?.context?.mailbox?.userProfile?.emailAddress || "";
+  const sameMailbox = !context?.mailboxEmail || context.mailboxEmail.toLowerCase() === mailboxEmail.toLowerCase();
+  // Compare opaque IDs, never subject/time. Office may expose an equivalent REST ID.
+  const sameId = Boolean(context?.itemId && current?.itemId &&
+    (current.itemId === context.itemId ||
+      (context.restItemId && getRestItemId(current, office) === context.restItemId)));
+  if (!sameMailbox || !sameId) {
+    throw outlookError("Le rendez-vous Outlook a changé ou n’est plus accessible. Cliquez sur Actualiser pour le recharger.", "OUTLOOK_CONTEXT_CHANGED");
   }
+}
+
+export function watchAppointmentChanges(onChange, office = globalThis.Office) {
+  const mailbox = office?.context?.mailbox;
+  if (!office?.context?.requirements?.isSetSupported("Mailbox", "1.5") ||
+      !office?.EventType?.ItemChanged || !mailbox?.addHandlerAsync) return;
+  // Some mobile hosts expose the method but reject the event: refresh remains usable.
+  try { mailbox.addHandlerAsync(office.EventType.ItemChanged, onChange, () => {}); }
+  catch { /* Optional host capability. Explicit refresh does not depend on it. */ }
 }
 
 async function getAppointmentContextOnce(onPhase, attempt) {
@@ -185,6 +202,11 @@ async function getAppointmentContextOnce(onPhase, attempt) {
     );
   }
 
+  const identity = {
+    itemId: item.itemId || "",
+    restItemId: getRestItemId(item),
+    mailboxEmail: Office.context?.mailbox?.userProfile?.emailAddress || "",
+  };
   onPhase?.("outlook_fields", attempt);
   const [subject, start, end, location] = await Promise.all([
     readText(item.subject, "subject"),
@@ -208,9 +230,9 @@ async function getAppointmentContextOnce(onPhase, attempt) {
     );
   }
 
+  assertAppointmentContext(identity);
   return {
-    itemId: item.itemId || "",
-    restItemId: getRestItemId(item),
+    ...identity,
     itemIdFormat: isOutlookMobile() ? "restId" : "ewsId",
     isMobile: isOutlookMobile(),
     subject: String(subject),
@@ -234,7 +256,8 @@ export async function getAppointmentContext(options = {}) {
   );
 }
 
-export async function markAppointmentAsLogged() {
+export async function markAppointmentAsLogged(context) {
+  assertAppointmentContext(context);
   const item = Office.context.mailbox.item;
   if (!item?.loadCustomPropertiesAsync) {
     throw outlookError(
@@ -247,6 +270,7 @@ export async function markAppointmentAsLogged() {
     code: "OUTLOOK_CUSTOM_PROPERTIES_LOAD_ERROR",
     timeoutCode: "OUTLOOK_CUSTOM_PROPERTIES_LOAD_TIMEOUT",
   });
+  assertAppointmentContext(context);
   properties.set("EventLogged", true);
   await officeAsync((done) => properties.saveAsync(done), {
     code: "OUTLOOK_CUSTOM_PROPERTIES_SAVE_ERROR",
