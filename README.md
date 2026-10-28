@@ -1,10 +1,10 @@
-# RDV & Notes — complément Outlook 2.3.6
+# RDV & Notes — complément Outlook 2.3.7
 
-## Ajustement 2.3.6 — information de série simplifiée
+## Ajustements 2.3.6 / 2.3.7 — information de série sans doublon
 
 Le volet « Portée et exceptions de la série » est supprimé, sans remplacement
-par un autre volet dépliable. Pour une série identifiée, une seule phrase visible :
-« Rendez-vous récurrent : les modifications concernent toute la série. »
+par un autre volet dépliable ni par une autre phrase dans Dynamics : l'information
+figure déjà dans la fiche du rendez-vous Outlook, affichée une seule fois.
 Les avertissements bloquants restent visibles et les précautions sur les séances
 personnalisées restent dans la confirmation avant modification. Aucun changement
 de logique Dynamics/Graph, de permission, d'APK ou d'Hyperion. 96 tests simulés.

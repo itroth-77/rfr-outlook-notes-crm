@@ -2,11 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-test("RDV & Notes v2.3.6 : meme identite, surfaces invite/organisateur, notes simples uniquement", () => {
+test("RDV & Notes v2.3.7 : meme identite, surfaces invite/organisateur, notes simples uniquement", () => {
   const manifest = fs.readFileSync(new URL("../manifest.template.xml", import.meta.url), "utf8");
   const main = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
   const metadata = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-  assert.equal(metadata.version, "2.3.6");
+  assert.equal(metadata.version, "2.3.7");
   assert.match(manifest, /<Id>0a316d2c-0556-4628-9bb3-bdc1d4735cba<\/Id>/);
   assert.match(manifest, /<DisplayName DefaultValue="RDV &amp; Notes"/);
   for (const surface of ["AppointmentAttendeeCommandSurface", "AppointmentOrganizerCommandSurface", "MobileLogEventAppointmentAttendee"]) {

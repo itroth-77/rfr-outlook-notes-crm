@@ -50,7 +50,7 @@ function harness() {
   const office = { context: { mailbox: { item: { itemId: current.itemId }, userProfile: { emailAddress: current.mailboxEmail } } } };
   const sandbox = {
     console: { error() {}, warn() {} }, document, Office: office, Intl, Date, URLSearchParams,
-    packageMetadata: { version: '2.3.6' }, AppointmentSession, assertAppointmentContext,
+    packageMetadata: { version: '2.3.7' }, AppointmentSession, assertAppointmentContext,
     APPOINTMENT_QUALIFICATION_FIELD: 'qualification', TRACKED_TO_DYNAMICS_CATEGORY: 'Tracked To Dynamics 365',
     getAppointmentContext: async () => { counts.context++; return realOfficeContext ? getAppointmentContext() : current; },
     getDataverseAccessToken: async () => 'fake', getGraphAccessToken: async () => 'fake',
@@ -179,18 +179,18 @@ test('UI compose : changement ID dans le meme wrapper pendant confirmation inter
   });
 });
 
-test('UI serie : phrase simple toujours visible, sans volet technique a deplier', async () => {
+test('UI serie : aucun rappel en double dans Dynamics et aucun volet technique a deplier', async () => {
   const h = harness(); h.appointment.editTarget.kind = 'series';
   await h.run(async () => {
     await h.api.boot();
     const status = h.document.querySelector('#seriesScopeStatus');
-    assert.equal(status.textContent, 'Rendez-vous récurrent : les modifications concernent toute la série.');
-    assert.equal(status.classList.contains('hidden'), false);
+    assert.equal(status.textContent, '');
+    assert.equal(status.classList.contains('hidden'), true);
     assert.equal(h.document.querySelector('#seriesScopeDetails'), null);
   });
 });
 
-test('UI RDV simple : pas de phrase de serie ; motif de blocage toujours visible si serie non verifiee', async () => {
+test('UI RDV simple : pas de rappel ; motif de blocage toujours visible si serie non verifiee', async () => {
   const h = harness();
   await h.run(async () => {
     await h.api.boot();

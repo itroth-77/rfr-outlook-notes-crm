@@ -327,7 +327,7 @@ function renderShell() {
     <section class="card" id="matchCard">
       <h2>Dynamics</h2>
       <p id="matchStatus" class="muted">Recherche en cours…</p>
-      <p id="seriesScopeStatus" class="hint hidden" role="status"></p>
+      <p id="seriesScopeStatus" class="warning hidden" role="status"></p>
       <button id="trackAppointmentButton" class="primary-button hidden" type="button">
         Activer « ${TRACKED_TO_DYNAMICS_CATEGORY} »
       </button>
@@ -820,9 +820,8 @@ function updateSelectedAppointment() {
   document.querySelector("#saveCrmFieldsButton").textContent = series ? "Modifier la qualification de toute la série" : "Mettre à jour la qualification";
   document.querySelector("#saveRegardingButton").textContent = series ? "Affecter à toute la série" : "Affecter ce Concernant";
   const seriesStatus = document.querySelector("#seriesScopeStatus");
-  seriesStatus.textContent = target?.kind === "blocked" ? target.reason
-    : series ? "Rendez-vous récurrent : les modifications concernent toute la série." : "";
-  seriesStatus.className = target?.kind === "blocked" ? "warning" : "hint";
+  // Recurrence is already shown in the Outlook summary. Only show a real blocker here.
+  seriesStatus.textContent = target?.kind === "blocked" ? target.reason : "";
   seriesStatus.classList.toggle("hidden", !seriesStatus.textContent);
   if (selectedAppointment?.noteBlockedReason) {
     noteTarget.textContent = selectedAppointment.noteBlockedReason;
