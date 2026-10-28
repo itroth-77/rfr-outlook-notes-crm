@@ -1,4 +1,22 @@
-# RDV & Notes — complément Outlook 2.3.8
+# RDV & Notes — complément Outlook 2.3.9
+
+## Ajustement 2.3.9 — un seul bouton mobile clair
+
+L'utilisateur a confirmé l'ouverture réelle de l'APK depuis le lien HTTPS de la
+2.3.8. Ce lien et sa navigation au clic sont conservés sans modification.
+Le bouton affiche maintenant le logo de l'application avec « Ouvrir l’application
+mobile » et « RDV & Notes » sur deux lignes. L'aide « Si Outlook bloque… », le
+bouton Copier, le lien brut et le code de presse-papiers sont supprimés. Aucun
+message n'apparaît après un clic normal ; les protections contre le changement
+de RDV et les brouillons non enregistrés restent actives. 98 tests simulés,
+compilation et manifeste validés. Aucun changement d'APK ni d'Hyperion.
+
+Le libellé natif « Journal » d'Outlook n'est pas modifié : le manifeste déclare
+déjà RDV & Notes, mais la surface MobileLogEventAppointmentAttendee expose
+l'action standard Log/View gérée par Outlook. EventLogged n'est activé qu'après
+la création effective d'une note, pas pour forcer un libellé.
+
+## Historique 2.3.8
 
 ## Ajustement 2.3.8 — lien mobile HTTPS et copie sans volet
 

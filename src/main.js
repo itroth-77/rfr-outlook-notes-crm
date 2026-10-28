@@ -116,8 +116,6 @@ function updateActionControls() {
   document.querySelector("#refreshAppointmentButton").disabled = actionBusy;
   document.querySelector("#refreshNotesButton").disabled = !enabled;
   document.querySelector("#openMobileApp")?.setAttribute("aria-disabled", String(actionBusy || session.invalid));
-  const copyButton = document.querySelector("#copyMobileLink");
-  if (copyButton) copyButton.disabled = actionBusy || session.invalid || !context.graphEvent;
 }
 
 const PHASE_LABELS = {
@@ -317,10 +315,10 @@ function renderShell() {
         ${context.organizerName ? `<div><dt>Organisateur</dt><dd>${escapeHtml(context.organizerName)}</dd></div>` : ""}
       </dl>
       <p id="recurrenceStatus" class="recurrence-badge" role="status"></p>
-      ${context.isMobile ? `<a id="openMobileApp" class="secondary-button app-link hidden" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Ouvrir dans RDV &amp; Notes</a>
-        <p id="mobileLinkStatus" class="hint" role="status">Identification du rendez-vous…</p>
-        <button id="copyMobileLink" class="compact-button" type="button" disabled>Copier le lien</button>
-        <a id="mobileCopyLink" class="mobile-raw-link hidden" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"></a>` : ""}
+      ${context.isMobile ? `<a id="openMobileApp" class="secondary-button app-link mobile-open-button hidden" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">
+        <img src="./assets/rdv-notes-logo-96.png" width="40" height="40" alt="" aria-hidden="true" />
+        <span class="mobile-open-label"><span>Ouvrir l’application mobile</span><strong>RDV &amp; Notes</strong></span>
+      </a><p id="mobileLinkStatus" class="status-message" role="status"></p>` : ""}
     </section>
 
     <section class="card" id="matchCard">
@@ -416,24 +414,10 @@ function renderShell() {
       if (actionBusy || document.querySelector("#noteText").value.trim()) throw new Error("Terminez l’action et enregistrez votre note avant d’ouvrir l’application mobile.");
       // Keep the original HTTPS anchor navigation in the user's click gesture.
       // Do not replace it with intent://, a custom scheme, a popup or a delayed redirect.
-      document.querySelector("#mobileLinkStatus").textContent = "Si Outlook bloque l’ouverture, utilisez Copier le lien puis ouvrez-le avec le navigateur du téléphone.";
+      document.querySelector("#mobileLinkStatus").textContent = "";
     } catch (error) { event.preventDefault(); contextError(error, document.querySelector("#mobileLinkStatus")); }
   };
-  for (const id of ["openMobileApp", "mobileCopyLink"]) document.querySelector("#" + id)?.addEventListener("click", onMobileLinkClick);
-  document.querySelector("#copyMobileLink")?.addEventListener("click", async () => {
-    try {
-      currentScope();
-      const link = document.querySelector("#mobileCopyLink");
-      if (!link.href) return;
-      await navigator.clipboard.writeText(link.href);
-      document.querySelector("#mobileLinkStatus").textContent = "Lien copié. Ouvrez-le avec le navigateur du téléphone.";
-    } catch (error) {
-      if (!showContextChange(error)) {
-        document.querySelector("#mobileCopyLink").classList.remove("hidden");
-        document.querySelector("#mobileLinkStatus").textContent = "Faites un appui long sur le lien ci-dessous puis choisissez Copier le lien.";
-      }
-    }
-  });
+  document.querySelector("#openMobileApp")?.addEventListener("click", onMobileLinkClick);
   document.querySelector("#saveCrmFieldsButton").addEventListener("click", saveCrmFields);
   document.querySelector("#regardingTypeSelect").addEventListener("change", () => {
     resetRegardingSearch();
@@ -499,10 +483,7 @@ async function refreshGraphContext(scope = currentScope()) {
     document.querySelector("#recurrenceStatus").textContent = isRecurringEvent(event)
       ? "↻ Rendez-vous récurrent · modifications Dynamics sur la série" : "Rendez-vous simple";
     if (link) {
-      const url = mobileAppointmentLink(event.id);
-      link.href = url; link.classList.remove("hidden");
-      const copyLink = document.querySelector("#mobileCopyLink");
-      copyLink.href = url; copyLink.textContent = url;
+      link.href = mobileAppointmentLink(event.id); link.classList.remove("hidden");
       document.querySelector("#mobileLinkStatus").textContent = "";
     }
     try { trackingState = await readTrackingState(token, event); await scope.ensureCurrent(); }
