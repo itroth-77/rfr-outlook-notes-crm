@@ -50,7 +50,7 @@ function harness() {
   const office = { context: { mailbox: { item: { itemId: current.itemId }, userProfile: { emailAddress: current.mailboxEmail } } } };
   const sandbox = {
     console: { error() {}, warn() {} }, document, Office: office, Intl, Date, URLSearchParams,
-    packageMetadata: { version: '2.3.5' }, AppointmentSession, assertAppointmentContext,
+    packageMetadata: { version: '2.3.6' }, AppointmentSession, assertAppointmentContext,
     APPOINTMENT_QUALIFICATION_FIELD: 'qualification', TRACKED_TO_DYNAMICS_CATEGORY: 'Tracked To Dynamics 365',
     getAppointmentContext: async () => { counts.context++; return realOfficeContext ? getAppointmentContext() : current; },
     getDataverseAccessToken: async () => 'fake', getGraphAccessToken: async () => 'fake',
@@ -176,5 +176,31 @@ test('UI compose : changement ID dans le meme wrapper pendant confirmation inter
     h.api.confirm(async () => { h.changeComposeId('two'); return true; });
     await h.api.saveQualification();
     assert.equal(h.counts.patch, 0); assert.equal(h.api.state().invalid, true);
+  });
+});
+
+test('UI serie : phrase simple toujours visible, sans volet technique a deplier', async () => {
+  const h = harness(); h.appointment.editTarget.kind = 'series';
+  await h.run(async () => {
+    await h.api.boot();
+    const status = h.document.querySelector('#seriesScopeStatus');
+    assert.equal(status.textContent, 'Rendez-vous récurrent : les modifications concernent toute la série.');
+    assert.equal(status.classList.contains('hidden'), false);
+    assert.equal(h.document.querySelector('#seriesScopeDetails'), null);
+  });
+});
+
+test('UI RDV simple : pas de phrase de serie ; motif de blocage toujours visible si serie non verifiee', async () => {
+  const h = harness();
+  await h.run(async () => {
+    await h.api.boot();
+    assert.equal(h.document.querySelector('#seriesScopeStatus').classList.contains('hidden'), true);
+    h.appointment.editTarget = {kind:'blocked', reason:'La série est inaccessible avec vos droits.'};
+    await h.api.refresh();
+    const status = h.document.querySelector('#seriesScopeStatus');
+    assert.equal(status.textContent, h.appointment.editTarget.reason);
+    assert.equal(status.classList.contains('warning'), true);
+    assert.equal(status.classList.contains('hidden'), false);
+    assert.equal(h.document.querySelector('#saveCrmFieldsButton').disabled, true);
   });
 });

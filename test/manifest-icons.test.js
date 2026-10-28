@@ -27,7 +27,7 @@ test('logo Outlook : tous les emplacements utilisent le nouveau logo PNG RGBA et
 });
 test('logo Outlook : meme GUID, version actualisee sans nouvelle permission', () => {
   const metadata = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(metadata.version, '2.3.5'); assert.equal(metadata.manifestRevision, 0);
+  assert.equal(metadata.version, '2.3.6'); assert.equal(metadata.manifestRevision, 0);
   assert.match(manifest, /<Id>0a316d2c-0556-4628-9bb3-bdc1d4735cba<\/Id>/);
   assert.match(manifest, /<Permissions>ReadItem<\/Permissions>/);
 });

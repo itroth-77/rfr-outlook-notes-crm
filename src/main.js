@@ -327,7 +327,7 @@ function renderShell() {
     <section class="card" id="matchCard">
       <h2>Dynamics</h2>
       <p id="matchStatus" class="muted">Recherche en cours…</p>
-      <details id="seriesScopeDetails" class="hidden"><summary>Portée et exceptions de la série</summary><p id="seriesScopeStatus" class="hint" role="status"></p></details>
+      <p id="seriesScopeStatus" class="hint hidden" role="status"></p>
       <button id="trackAppointmentButton" class="primary-button hidden" type="button">
         Activer « ${TRACKED_TO_DYNAMICS_CATEGORY} »
       </button>
@@ -819,9 +819,11 @@ function updateSelectedAppointment() {
   document.querySelector("#regardingScopeLabel").textContent = series ? "Concernant de la série" : "Concernant";
   document.querySelector("#saveCrmFieldsButton").textContent = series ? "Modifier la qualification de toute la série" : "Mettre à jour la qualification";
   document.querySelector("#saveRegardingButton").textContent = series ? "Affecter à toute la série" : "Affecter ce Concernant";
-  document.querySelector("#seriesScopeStatus").textContent = target?.kind === "blocked" ? target.reason : selectedAppointment?.seriesNotice || "";
-  document.querySelector("#seriesScopeDetails").classList.toggle("hidden", !document.querySelector("#seriesScopeStatus").textContent);
-  if (target?.kind === "blocked") document.querySelector("#seriesScopeDetails").open = true;
+  const seriesStatus = document.querySelector("#seriesScopeStatus");
+  seriesStatus.textContent = target?.kind === "blocked" ? target.reason
+    : series ? "Rendez-vous récurrent : les modifications concernent toute la série." : "";
+  seriesStatus.className = target?.kind === "blocked" ? "warning" : "hint";
+  seriesStatus.classList.toggle("hidden", !seriesStatus.textContent);
   if (selectedAppointment?.noteBlockedReason) {
     noteTarget.textContent = selectedAppointment.noteBlockedReason;
     noteTarget.className = "warning";

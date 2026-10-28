@@ -1,4 +1,15 @@
-# RDV & Notes — complément Outlook 2.3.5
+# RDV & Notes — complément Outlook 2.3.6
+
+## Ajustement 2.3.6 — information de série simplifiée
+
+Le volet « Portée et exceptions de la série » est supprimé, sans remplacement
+par un autre volet dépliable. Pour une série identifiée, une seule phrase visible :
+« Rendez-vous récurrent : les modifications concernent toute la série. »
+Les avertissements bloquants restent visibles et les précautions sur les séances
+personnalisées restent dans la confirmation avant modification. Aucun changement
+de logique Dynamics/Graph, de permission, d'APK ou d'Hyperion. 96 tests simulés.
+
+## Historique 2.3.5
 
 ## Correctif 2.3.5 — Outlook en mode modification (28 octobre 2026)
 
