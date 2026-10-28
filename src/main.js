@@ -27,7 +27,7 @@ import {
 } from "./dataverse.js";
 import { TRACKED_TO_DYNAMICS_CATEGORY, isRecurringEvent, resolveOutlookEvent, readTrackingState, trackOutlookAppointment } from "./graph.js";
 import { getAppointmentContext, watchAppointmentChanges, markAppointmentAsLogged } from "./outlook.js";
-import { mobileAppointmentLink, mobileLaunchLink } from "./mobile-link.js";
+import { mobileAppointmentLink } from "./mobile-link.js";
 import { AppointmentSession } from "./appointment-session.js";
 import { withoutAppointmentReference } from "./appointment-notes.js";
 import { delay } from "./resilience.js";
@@ -116,6 +116,8 @@ function updateActionControls() {
   document.querySelector("#refreshAppointmentButton").disabled = actionBusy;
   document.querySelector("#refreshNotesButton").disabled = !enabled;
   document.querySelector("#openMobileApp")?.setAttribute("aria-disabled", String(actionBusy || session.invalid));
+  const copyButton = document.querySelector("#copyMobileLink");
+  if (copyButton) copyButton.disabled = actionBusy || session.invalid || !context.graphEvent;
 }
 
 const PHASE_LABELS = {
@@ -317,11 +319,8 @@ function renderShell() {
       <p id="recurrenceStatus" class="recurrence-badge" role="status"></p>
       ${context.isMobile ? `<a id="openMobileApp" class="secondary-button app-link hidden" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Ouvrir dans RDV &amp; Notes</a>
         <p id="mobileLinkStatus" class="hint" role="status">Identification du rendez-vous…</p>
-        <details class="mobile-help"><summary>Si Outlook bloque l’ouverture</summary>
-          <p>Certains Outlook mobiles empêchent de quitter leur fenêtre intégrée. Copiez ce lien HTTPS et ouvrez-le avec le navigateur du téléphone. Le lien des mails reste utilisable.</p>
-          <input id="mobileCopyLink" aria-label="Lien du rendez-vous pour l’application" readonly />
-          <button id="copyMobileLink" class="compact-button" type="button">Copier le lien</button>
-        </details>` : ""}
+        <button id="copyMobileLink" class="compact-button" type="button" disabled>Copier le lien</button>
+        <a id="mobileCopyLink" class="mobile-raw-link hidden" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"></a>` : ""}
     </section>
 
     <section class="card" id="matchCard">
@@ -411,23 +410,28 @@ function renderShell() {
   });
   for (const id of ["noteSubject", "noteText"]) document.querySelector("#" + id).addEventListener("input", rememberDraft);
   document.querySelector("#qualificationSelect").addEventListener("change", updateActionControls);
-  document.querySelector("#openMobileApp")?.addEventListener("click", (event) => {
+  const onMobileLinkClick = (event) => {
     try {
       currentScope();
       if (actionBusy || document.querySelector("#noteText").value.trim()) throw new Error("Terminez l’action et enregistrez votre note avant d’ouvrir l’application mobile.");
-      document.querySelector("#mobileLinkStatus").textContent = "Ouverture demandée. Si Outlook la bloque, utilisez l’aide ci-dessous ou le lien reçu par mail.";
+      // Keep the original HTTPS anchor navigation in the user's click gesture.
+      // Do not replace it with intent://, a custom scheme, a popup or a delayed redirect.
+      document.querySelector("#mobileLinkStatus").textContent = "Si Outlook bloque l’ouverture, utilisez Copier le lien puis ouvrez-le avec le navigateur du téléphone.";
     } catch (error) { event.preventDefault(); contextError(error, document.querySelector("#mobileLinkStatus")); }
-  });
+  };
+  for (const id of ["openMobileApp", "mobileCopyLink"]) document.querySelector("#" + id)?.addEventListener("click", onMobileLinkClick);
   document.querySelector("#copyMobileLink")?.addEventListener("click", async () => {
     try {
       currentScope();
-      const input = document.querySelector("#mobileCopyLink");
-      if (!input.value) return;
-      input.select();
-      await navigator.clipboard.writeText(input.value);
+      const link = document.querySelector("#mobileCopyLink");
+      if (!link.href) return;
+      await navigator.clipboard.writeText(link.href);
       document.querySelector("#mobileLinkStatus").textContent = "Lien copié. Ouvrez-le avec le navigateur du téléphone.";
     } catch (error) {
-      if (!showContextChange(error)) document.querySelector("#mobileLinkStatus").textContent = "Sélectionnez le lien ci-dessous puis choisissez Copier.";
+      if (!showContextChange(error)) {
+        document.querySelector("#mobileCopyLink").classList.remove("hidden");
+        document.querySelector("#mobileLinkStatus").textContent = "Faites un appui long sur le lien ci-dessous puis choisissez Copier le lien.";
+      }
     }
   });
   document.querySelector("#saveCrmFieldsButton").addEventListener("click", saveCrmFields);
@@ -495,10 +499,11 @@ async function refreshGraphContext(scope = currentScope()) {
     document.querySelector("#recurrenceStatus").textContent = isRecurringEvent(event)
       ? "↻ Rendez-vous récurrent · modifications Dynamics sur la série" : "Rendez-vous simple";
     if (link) {
-      const isAndroid = Office.context.platform === "Android" || /OutlookAndroid/i.test(Office.context.mailbox.diagnostics?.hostName || "");
-      link.href = mobileLaunchLink(event.id, { isAndroid }); link.classList.remove("hidden");
-      document.querySelector("#mobileCopyLink").value = mobileAppointmentLink(event.id);
-      document.querySelector("#mobileLinkStatus").textContent = "Ouvre cette séance à l’étape Dynamics dans l’application Android.";
+      const url = mobileAppointmentLink(event.id);
+      link.href = url; link.classList.remove("hidden");
+      const copyLink = document.querySelector("#mobileCopyLink");
+      copyLink.href = url; copyLink.textContent = url;
+      document.querySelector("#mobileLinkStatus").textContent = "";
     }
     try { trackingState = await readTrackingState(token, event); await scope.ensureCurrent(); }
     catch (error) { await scope.ensureCurrent(); document.querySelector("#trackingStatus").textContent = "Statut de catégorie non vérifié. Une activation relira la série avant toute modification."; }

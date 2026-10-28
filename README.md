@@ -1,4 +1,31 @@
-# RDV & Notes — complément Outlook 2.3.7
+# RDV & Notes — complément Outlook 2.3.8
+
+## Ajustement 2.3.8 — lien mobile HTTPS et copie sans volet
+
+Le test réel du 28 octobre a confirmé : le lien HTTPS copié ouvre l'APK, mais
+la tentative `intent://` depuis le complément ne lance rien. Cette tentative
+est supprimée. « Ouvrir dans RDV & Notes » pointe maintenant exactement vers le
+même HTTPS que « Copier le lien », sous forme d'une vraie ancre HTML. Pas de
+redirection programmée, pas de popup, pas de schéma personnalisé. Le contrôle du
+RDV et du brouillon n'intercepte que les clics dangereux, pas le clic normal.
+
+L'aide dépliable et le champ non cliquable sont supprimés. Le bouton Copier est
+visible directement. Si le presse-papiers est refusé, un véritable lien HTTPS
+cliquable est affiché et peut être copié par appui long. Aucun accès automatique
+au presse-papiers, changement Intune, APK ou Hyperion.
+
+**Ouverture directe non encore validée sur Outlook Android** : le passage du
+WebView Outlook vers le système reste contrôlé par Outlook. Le complément ne
+dispose pas d'OpenBrowserWindowApi sur Android et ne peut pas garantir la sortie.
+La suppression de cr-api dans AppDomains ne garantit pas non plus ce comportement
+sur mobile (la documentation décrit cette navigation pour les plateformes bureau).
+Retester le clic, puis Copier en secours, sur le même téléphone. Le résultat de
+99 tests simulés ne valide pas le lancement d'une application native réelle.
+
+Référence Microsoft :
+https://learn.microsoft.com/en-us/office/dev/add-ins/reference/requirement-sets/open-browser-window-api-requirement-sets
+
+## Historique 2.3.7
 
 ## Ajustements 2.3.6 / 2.3.7 — information de série sans doublon
 

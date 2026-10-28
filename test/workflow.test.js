@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { AppointmentSession } from '../src/appointment-session.js';
 import { assertAppointmentContext, getAppointmentContext } from '../src/outlook.js';
+import { mobileAppointmentLink } from '../src/mobile-link.js';
 
 // Run the actual UI orchestration without Office, network, a CRM or a browser.
 // This small DOM adapter deliberately tracks detached controls after re-render.
@@ -40,7 +41,7 @@ function harness() {
   document.elements.set('app', new Element(document, 'app'));
   const meeting = (id) => ({ itemId: id, restItemId: id, mailboxEmail: 'user@roth-france.fr', subject: 'RDV ' + id, start: new Date(), end: new Date(), isMobile: false });
   let current = meeting('one');
-  const counts = { context: 0, notes: 0, patch: 0, tracking: 0 };
+  const counts = { context: 0, notes: 0, patch: 0, tracking: 0, copies: 0, copiedLink: '' };
   const regarding = { id: 'account', label: 'Compte test', logicalName: 'account' };
   const appointment = { activityid: 'crm-one', editTarget: { kind: 'appointment' }, qualification: 1 };
   let search = async () => [appointment];
@@ -50,7 +51,9 @@ function harness() {
   const office = { context: { mailbox: { item: { itemId: current.itemId }, userProfile: { emailAddress: current.mailboxEmail } } } };
   const sandbox = {
     console: { error() {}, warn() {} }, document, Office: office, Intl, Date, URLSearchParams,
-    packageMetadata: { version: '2.3.7' }, AppointmentSession, assertAppointmentContext,
+    packageMetadata: { version: '2.3.8' }, AppointmentSession, assertAppointmentContext,
+    mobileAppointmentLink,
+    navigator: { clipboard: { writeText: async (text) => { counts.copies++; counts.copiedLink = text; } } },
     APPOINTMENT_QUALIFICATION_FIELD: 'qualification', TRACKED_TO_DYNAMICS_CATEGORY: 'Tracked To Dynamics 365',
     getAppointmentContext: async () => { counts.context++; return realOfficeContext ? getAppointmentContext() : current; },
     getDataverseAccessToken: async () => 'fake', getGraphAccessToken: async () => 'fake',
@@ -81,6 +84,8 @@ function harness() {
     };`, runtime);
   const api = sandbox.ui;
   return { api, counts, document, office, meeting, appointment,
+    mobile() { current.isMobile = true; office.context.platform = 'Android'; },
+    clipboardDenied() { sandbox.navigator.clipboard.writeText = async () => { throw new Error('clipboard denied'); }; },
     compose() {
       realOfficeContext = true;
       office.onReady = async () => {}; office.HostType = { Outlook: 'Outlook' }; office.AsyncResultStatus = { Succeeded: 'succeeded' };
@@ -202,5 +207,54 @@ test('UI RDV simple : pas de rappel ; motif de blocage toujours visible si serie
     assert.equal(status.classList.contains('warning'), true);
     assert.equal(status.classList.contains('hidden'), false);
     assert.equal(h.document.querySelector('#saveCrmFieldsButton').disabled, true);
+  });
+});
+
+test('UI mobile : le clic navigue directement vers le meme HTTPS que Copier, sans intent ni volet aide', async () => {
+  const h = harness(); h.mobile();
+  await h.run(async () => {
+    await h.api.boot();
+    const link = h.document.querySelector('#openMobileApp');
+    const copy = h.document.querySelector('#mobileCopyLink');
+    assert.equal(link.href, mobileAppointmentLink('one'));
+    assert.equal(link.href, copy.href);
+    assert.equal(h.document.querySelector('#copyMobileLink').disabled, false);
+    assert.ok(!h.document.querySelector('#app').innerHTML.includes('mobile-help'));
+    assert.ok(!h.document.querySelector('#app').innerHTML.includes('<input id="mobileCopyLink"'));
+    let prevented = false;
+    link.listeners.click({ preventDefault() { prevented = true; } });
+    assert.equal(prevented, false, 'la navigation HTML au clic est conservee');
+    await h.document.querySelector('#copyMobileLink').listeners.click();
+    assert.equal(h.counts.copies, 1); assert.equal(h.counts.copiedLink, link.href);
+  });
+});
+
+test('UI mobile : clipboard refuse => vrai lien HTTPS cliquable et copiable par appui long', async () => {
+  const h = harness(); h.mobile(); h.clipboardDenied();
+  await h.run(async () => {
+    await h.api.boot();
+    await h.document.querySelector('#copyMobileLink').listeners.click();
+    const link = h.document.querySelector('#mobileCopyLink');
+    assert.equal(link.classList.contains('hidden'), false);
+    assert.equal(link.href, mobileAppointmentLink('one'));
+    assert.equal(link.textContent, link.href);
+    assert.equal(typeof link.listeners.click, 'function');
+    assert.match(h.document.querySelector('#mobileLinkStatus').textContent, /appui long/);
+  });
+});
+
+test('UI mobile : clic refuse pour un autre RDV ou une note non enregistree, pas de copie silencieuse', async () => {
+  const h = harness(); h.mobile();
+  await h.run(async () => {
+    await h.api.boot(); let prevented = false;
+    const event = { preventDefault() { prevented = true; } };
+    h.document.querySelector('#noteText').value = 'Note non enregistree';
+    h.document.querySelector('#openMobileApp').listeners.click(event);
+    assert.equal(prevented, true);
+    h.select('two'); prevented = false;
+    h.document.querySelector('#mobileCopyLink').listeners.click(event);
+    assert.equal(prevented, true);
+    assert.equal(h.counts.copies, 0);
+    assert.equal(h.api.state().invalid, true);
   });
 });

@@ -5,16 +5,3 @@ export function mobileAppointmentLink(eventId) {
   }
   return "https://cr-api.roth-france.fr/open?" + new URLSearchParams({ eventId, view: "crm" });
 }
-
-/** User-gesture-only Android intent, fixed package and verified HTTPS route.
- * Chrome supports this syntax; an Outlook WebView may still refuse external apps.
- */
-export function androidAppointmentIntent(eventId) {
-  const url = mobileAppointmentLink(eventId);
-  return url.replace(/^https:/, "intent:") +
-    "#Intent;scheme=https;package=fr.roth.compterendu;end";
-}
-
-export function mobileLaunchLink(eventId, { isAndroid = false } = {}) {
-  return isAndroid ? androidAppointmentIntent(eventId) : mobileAppointmentLink(eventId);
-}

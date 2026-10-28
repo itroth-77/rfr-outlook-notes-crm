@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { assertAppointmentContext, assertAppointmentContextAsync, getAppointmentContext, watchAppointmentChanges, markAppointmentAsLogged } from '../src/outlook.js';
 import { resolveOutlookEvent } from '../src/graph.js';
 import { AppointmentSession } from '../src/appointment-session.js';
-import { mobileAppointmentLink, androidAppointmentIntent, mobileLaunchLink } from '../src/mobile-link.js';
+import { mobileAppointmentLink } from '../src/mobile-link.js';
 
 const item = (id) => ({ itemId: id, subject: 'Réunion', start: new Date('2026-10-28T09:00Z'), end: new Date('2026-10-28T10:00Z') });
 const officeFixture = (id = 'one') => ({
@@ -90,16 +90,14 @@ test('Office : ne jamais marquer le nouvel item apres une creation de note sur l
   });
 });
 
-test('lien Android : intent au clic, paquet fixe, route HTTPS de l’APK, aucun jeton ou redirection', () => {
+test('lien mobile : HTTPS seulement, ID encode, route de l’APK, aucun jeton ni redirection', () => {
   const id = 'AAMk/+%&x#;=TEST';
-  const intent = androidAppointmentIntent(id);
-  assert.equal(intent, mobileLaunchLink(id, { isAndroid: true }));
-  assert.ok(intent.endsWith('#Intent;scheme=https;package=fr.roth.compterendu;end'));
-  const https = intent.split('#Intent;')[0].replace(/^intent:/, 'https:');
-  assert.equal(https, mobileAppointmentLink(id));
+  const https = mobileAppointmentLink(id);
   const url = new URL(https); assert.equal(url.pathname, '/open'); assert.equal(url.searchParams.get('eventId'), id);
-  assert.equal(mobileLaunchLink(id), https);
-  assert.throws(() => androidAppointmentIntent('evil\n'));
+  assert.equal(url.protocol, 'https:'); assert.equal(url.origin, 'https://cr-api.roth-france.fr');
+  assert.equal(url.searchParams.get('view'), 'crm'); assert.equal(url.hash, '');
+  assert.deepEqual([...url.searchParams.keys()], ['eventId', 'view']);
+  assert.throws(() => mobileAppointmentLink('evil\n'));
 });
 
 function composeFixture() {

@@ -251,8 +251,8 @@ input:focus, select:focus, textarea:focus {
 .context-banner { padding: 12px; border: 1px solid #fdb022; border-radius: 10px; background: #fffaeb; line-height: 1.5; }
 details > summary { cursor: pointer; font-weight: 700; color: #174ea6; min-height: 36px; padding: 5px 0; }
 details[open] > summary { margin-bottom: 6px; }
-.mobile-help { font-size: 14px; line-height: 1.45; }
-.mobile-help input { font-size: 13px; margin-bottom: 8px; }
+.mobile-raw-link { overflow-wrap: anywhere; font-size: 14px; line-height: 1.45; color: #174ea6; }
+.mobile-raw-link:not(.hidden) { display: block; margin-top: 10px; }
 .status-message:empty, .recurrence-badge:empty { display: none; }
 .primary-button, .secondary-button { min-height: 46px; font-size: 16px; margin-top: 12px; }
 .field > span { font-size: 15px; }
