@@ -26,7 +26,7 @@ import {
   verifyAppointmentNoteTarget,
 } from "./dataverse.js";
 import { TRACKED_TO_DYNAMICS_CATEGORY, isRecurringEvent, resolveOutlookEvent, readTrackingState, trackOutlookAppointment } from "./graph.js";
-import { assertAppointmentContext, getAppointmentContext, watchAppointmentChanges, markAppointmentAsLogged } from "./outlook.js";
+import { getAppointmentContext, watchAppointmentChanges, markAppointmentAsLogged } from "./outlook.js";
 import { mobileAppointmentLink, mobileLaunchLink } from "./mobile-link.js";
 import { AppointmentSession } from "./appointment-session.js";
 import { withoutAppointmentReference } from "./appointment-notes.js";
@@ -125,6 +125,7 @@ const PHASE_LABELS = {
   outlook_initialization: "Initialisation d’Outlook",
   outlook_context_direct: "Contexte du rendez-vous déjà disponible",
   outlook_item: "Accès au rendez-vous Outlook",
+  outlook_item_id: "Lecture de l’identifiant Outlook (lecture ou modification)",
   outlook_fields: "Lecture du rendez-vous Outlook",
   authentication: "Connexion Microsoft",
   dataverse_search: "Recherche du rendez-vous CRM",
@@ -445,7 +446,7 @@ function renderShell() {
 }
 
 async function renderCandidates(scope = currentScope()) {
-  scope.ensure();
+  await scope.ensureCurrent();
   const status = document.querySelector("#matchStatus");
   const trackButton = document.querySelector("#trackAppointmentButton");
   const candidate = chooseUnambiguousCandidate(candidates);
@@ -456,7 +457,7 @@ async function renderCandidates(scope = currentScope()) {
 
   if (candidate) {
     const resolved = await resolveAppointmentEditingTarget(config, accessToken, candidate, isRecurringEvent(context.graphEvent));
-    scope.ensure();
+    await scope.ensureCurrent();
     selectedAppointment = resolved;
     status.textContent = "✓ Rendez-vous synchronisé avec Dynamics";
     status.className = "success";
@@ -481,7 +482,7 @@ async function renderCandidates(scope = currentScope()) {
 }
 
 async function refreshGraphContext(scope = currentScope()) {
-  scope.ensure();
+  await scope.ensureCurrent();
   context.graphEvent = null;
   trackingState = null;
   const link = document.querySelector("#openMobileApp");
@@ -489,7 +490,7 @@ async function refreshGraphContext(scope = currentScope()) {
   try {
     const token = await getGraphAccessToken(config);
     const event = await resolveOutlookEvent(token, scope.context);
-    scope.ensure();
+    await scope.ensureCurrent();
     context.graphEvent = event;
     document.querySelector("#recurrenceStatus").textContent = isRecurringEvent(event)
       ? "↻ Rendez-vous récurrent · modifications Dynamics sur la série" : "Rendez-vous simple";
@@ -499,11 +500,11 @@ async function refreshGraphContext(scope = currentScope()) {
       document.querySelector("#mobileCopyLink").value = mobileAppointmentLink(event.id);
       document.querySelector("#mobileLinkStatus").textContent = "Ouvre cette séance à l’étape Dynamics dans l’application Android.";
     }
-    try { trackingState = await readTrackingState(token, event); scope.ensure(); }
-    catch (error) { scope.ensure(); document.querySelector("#trackingStatus").textContent = "Statut de catégorie non vérifié. Une activation relira la série avant toute modification."; }
+    try { trackingState = await readTrackingState(token, event); await scope.ensureCurrent(); }
+    catch (error) { await scope.ensureCurrent(); document.querySelector("#trackingStatus").textContent = "Statut de catégorie non vérifié. Une activation relira la série avant toute modification."; }
   } catch (error) {
     if (showContextChange(error)) throw error;
-    scope.ensure();
+    await scope.ensureCurrent();
     document.querySelector("#recurrenceStatus").textContent = "Portée Outlook non vérifiée : modifications bloquées. " + error.message;
     if (link) document.querySelector("#mobileLinkStatus").textContent = "Ouverture mobile indisponible : le rendez-vous n’a pas pu être identifié avec certitude.";
   }
@@ -527,7 +528,7 @@ async function refreshCurrentMeeting() {
     updateActionControls();
     const scope = currentScope();
     accessToken = await getDataverseAccessToken(config);
-    scope.ensure();
+    await scope.ensureCurrent();
     showConnected();
     await loadCurrentMeeting(scope);
   } catch (error) {
@@ -550,9 +551,9 @@ function showConnected() {
 
 async function loadCurrentMeeting(scope) {
   await refreshGraphContext(scope);
-  scope.ensure();
+  await scope.ensureCurrent();
   const found = await findAppointmentCandidates(config, accessToken, scope.context);
-  scope.ensure();
+  await scope.ensureCurrent();
   candidates = found;
   await renderCandidates(scope);
   if (selectedAppointment) {
@@ -574,14 +575,14 @@ async function trackAndWaitForAppointment() {
     const scope = currentScope();
     const graphToken = await getGraphAccessToken(config);
     const event = await resolveOutlookEvent(graphToken, scope.context);
-    scope.ensure();
+    await scope.ensureCurrent();
     const series = isRecurringEvent(event);
     if (!await confirmAction(series ? "Suivre toute la série ?" : "Activer le suivi Dynamics ?",
       series ? "La catégorie sera activée sur toute la série dans VOTRE calendrier, organisateur ou invité. Autres catégories et exceptions conservées. La synchronisation Dynamics sera ensuite vérifiée."
         : "La catégorie sera ajoutée uniquement à ce rendez-vous dans votre calendrier. Les autres catégories seront conservées.", series ? "Suivre toute la série" : "Activer le suivi")) return;
-    scope.ensure();
-    const tracking = await trackOutlookAppointment(graphToken, scope.context, event, scope.ensure);
-    scope.ensure();
+    await scope.ensureCurrent();
+    const tracking = await trackOutlookAppointment(graphToken, scope.context, event, scope.ensureCurrent);
+    await scope.ensureCurrent();
     context.graphEvent = tracking.event;
     trackingState = { tracked: true };
     status.textContent = tracking.alreadyTracked
@@ -591,9 +592,9 @@ async function trackAndWaitForAppointment() {
     status.className = "status-message success";
 
     for (let attempt = 1; attempt <= 12; attempt += 1) {
-      scope.ensure();
+      await scope.ensureCurrent();
       const found = await findAppointmentCandidates(config, accessToken, scope.context);
-      scope.ensure();
+      await scope.ensureCurrent();
       candidates = found;
       if (chooseUnambiguousCandidate(candidates)) {
         await renderCandidates(scope);
@@ -680,7 +681,7 @@ async function searchRegarding() {
       searchText,
     );
     if (request !== regardingRequest || !resultSelect.isConnected || logicalName !== document.querySelector("#regardingTypeSelect").value) return;
-    scope.ensure();
+    await scope.ensureCurrent();
     regardingSearchResults = results;
     if (!regardingSearchResults.length) {
       status.textContent = "Aucun résultat trouvé.";
@@ -731,16 +732,16 @@ async function saveRegarding() {
     if (series && !await confirmAction("Modifier le Concernant de toute la série ?",
       `La série Dynamics entière sera rattachée à « ${regarding.label} ». Les exceptions sont conservées ; aucune note existante n’est déplacée.`, "Modifier toute la série")) return;
     accessToken = await getDataverseAccessToken(config);
-    scope.ensure();
+    await scope.ensureCurrent();
     const updatedAppointment = await updateAppointmentRegarding(
       config,
       accessToken,
       appointment.activityid,
       regarding,
       appointment,
-      scope.ensure,
+      scope.ensureCurrent,
     );
-    scope.ensure();
+    await scope.ensureCurrent();
     selectedAppointment = updatedAppointment;
     updateSelectedAppointment();
     status.textContent = `Concernant ${series ? "de toute la série " : ""}confirmé : ${getRegardingLabel(selectedAppointment)}.`;
@@ -847,7 +848,7 @@ async function refreshCrmFields(scope = currentScope()) {
 
   try {
     const options = await getAppointmentQualificationOptions(config, accessToken, selectedAppointment);
-    scope.ensure();
+    await scope.ensureCurrent();
     if (selectedAppointment?.activityid !== appointmentId || !select.isConnected) return;
     qualificationOptions = options;
 
@@ -902,16 +903,16 @@ async function saveCrmFields() {
     if (series && !await confirmAction("Modifier la qualification de toute la série ?",
       "La modification vise le maître Dynamics de toute la série. Les exceptions existantes sont conservées ; la propagation à chaque séance n’est pas garantie.", "Modifier toute la série")) return;
     accessToken = await getDataverseAccessToken(config);
-    scope.ensure();
+    await scope.ensureCurrent();
     const updatedAppointment = await updateAppointmentQualification(
       config,
       accessToken,
       appointment.activityid,
       value,
       appointment,
-      scope.ensure,
+      scope.ensureCurrent,
     );
-    scope.ensure();
+    await scope.ensureCurrent();
     selectedAppointment = updatedAppointment;
     updateSelectedAppointment();
     status.textContent = `Qualification ${series ? "de toute la série " : ""}confirmée : ${qualificationLabel(value)}. ${selectedAppointment.seriesNotice || ""}`;
@@ -946,7 +947,7 @@ async function refreshNotes() {
     const scope = currentScope();
     const notes = await getAppointmentNotes(config, accessToken, regarding, appointment.activityid);
     if (request !== notesRequest || selectedAppointment !== appointment || context !== originalContext || !notesList.isConnected) return;
-    scope.ensure();
+    await scope.ensureCurrent();
     if (!notes.length) {
       notesList.innerHTML = '<p class="muted">Aucune note identifiée pour cette séance.</p>';
       return;
@@ -1006,12 +1007,12 @@ async function saveNote() {
     accessToken = await getDataverseAccessToken(config);
     if (selectedAppointment !== appointment || context !== originalContext) throw new Error("Le rendez-vous sélectionné a changé. Aucun nouvel envoi.");
     const verified = await verifyAppointmentNoteTarget(config, accessToken, appointment);
-    scope.ensure();
+    await scope.ensureCurrent();
     if (selectedAppointment !== appointment || context !== originalContext) throw new Error("Le rendez-vous sélectionné a changé. Aucun nouvel envoi.");
     await createRegardingNote(config, accessToken, verified, {
       subject: subject || `Note — ${context.subject}`,
       text,
-    }, appointment.activityid, scope.ensure);
+    }, appointment.activityid, scope.ensureCurrent);
     let markerWarning = "";
     try {
       await markAppointmentAsLogged(originalContext);
@@ -1073,10 +1074,12 @@ async function start() {
   } finally { actionBusy = false; if (document.querySelector("#trackAppointmentButton")) updateActionControls(); }
 }
 
-function onOutlookItemChanged() {
+async function onOutlookItemChanged() {
   if (!context || session.invalid) return;
-  try { assertAppointmentContext(context); }
+  const snapshot = context;
+  try { await session.capture().ensureCurrent(); }
   catch (error) {
+    if (context !== snapshot || error.code !== "OUTLOOK_CONTEXT_CHANGED") return;
     rememberDraft();
     showContextChange(error);
     // Do not replace the form while a confirmation or a write is in progress.

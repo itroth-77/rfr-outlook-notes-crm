@@ -1,7 +1,7 @@
 {
   "name": "rfr-outlook-mobile-crm-notes",
   "private": true,
-  "version": "2.3.4",
+  "version": "2.3.5",
   "manifestRevision": 0,
   "type": "module",
   "scripts": {

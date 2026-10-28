@@ -1,4 +1,4 @@
-import { assertAppointmentContext } from "./outlook.js";
+import { assertAppointmentContext, assertAppointmentContextAsync } from "./outlook.js";
 
 /** In-memory scope. Invalidating also blocks A -> B -> A during an operation. */
 export class AppointmentSession {
@@ -8,13 +8,18 @@ export class AppointmentSession {
   capture() {
     const context = this.context;
     const revision = this.revision;
-    return { context, ensure: () => {
+    const ensure = () => {
       if (this.invalid || this.revision !== revision || this.context !== context) {
         const error = new Error("Le rendez-vous Outlook a changé. Cliquez sur Actualiser pour le recharger.");
         error.code = "OUTLOOK_CONTEXT_CHANGED";
         throw error;
       }
       assertAppointmentContext(context);
+    };
+    return { context, ensure, ensureCurrent: async () => {
+      ensure();
+      await assertAppointmentContextAsync(context);
+      ensure();
     } };
   }
   rememberDraft(subject, text) {

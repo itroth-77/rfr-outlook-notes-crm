@@ -1,4 +1,31 @@
-# RDV & Notes — complément Outlook 2.3.4
+# RDV & Notes — complément Outlook 2.3.5
+
+## Correctif 2.3.5 — Outlook en mode modification (28 octobre 2026)
+
+La capture de l'occurrence IT Meeting a identifié un manque dans la 2.3.4 :
+`item.itemId` appartient au mode lecture, pas à `AppointmentCompose`. Le
+complément utilise maintenant `getItemIdAsync` en mode modification pour lire
+l'identifiant de l'élément déjà enregistré, puis le convertir au format REST.
+Il ne sauvegarde jamais automatiquement l'élément Outlook avec `saveAsync` :
+les modifications Outlook en attente, les horaires, les invités et la récurrence
+restent inchangés. Aucun changement de permission, de GUID, d'APK ou d'Hyperion.
+
+Les contrôles asynchrones relisent cet identifiant après les chargements et
+immédiatement avant les PATCH Graph/Dataverse et le POST de note. Le même objet
+Office réutilisé pour un autre élément ne suffit donc pas à autoriser l'écriture.
+Un élément non enregistré ou un ancien client sans `getItemIdAsync` est bloqué
+avec un message utile, sans sauvegarde ni appariement de secours par titre.
+
+94 tests simulés réussis, dont lecture/invité/mobile, occurrence en modification,
+conversion EWS/REST, changement pendant confirmation, même wrapper Office avec
+autre ID, refus asynchrone avant écriture, élément non enregistré et ancien
+client. Compilation Vite et manifeste 2.3.5.0 validés. Publication autorisée par
+l'utilisateur. Reste à retester le RDV réel montré sur la capture dans Outlook.
+
+Référence API Microsoft :
+https://learn.microsoft.com/en-us/javascript/api/outlook/office.appointmentcompose#outlook-office-appointmentcompose-getitemidasync-member(1)
+
+## Historique 2.3.4
 
 ## Mise à jour du 28 octobre 2026
 

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assertAppointmentContext, getAppointmentContext, watchAppointmentChanges, markAppointmentAsLogged } from '../src/outlook.js';
+import { assertAppointmentContext, assertAppointmentContextAsync, getAppointmentContext, watchAppointmentChanges, markAppointmentAsLogged } from '../src/outlook.js';
+import { resolveOutlookEvent } from '../src/graph.js';
 import { AppointmentSession } from '../src/appointment-session.js';
 import { mobileAppointmentLink, androidAppointmentIntent, mobileLaunchLink } from '../src/mobile-link.js';
 
@@ -99,4 +100,96 @@ test('lien Android : intent au clic, paquet fixe, route HTTPS de l’APK, aucun 
   const url = new URL(https); assert.equal(url.pathname, '/open'); assert.equal(url.searchParams.get('eventId'), id);
   assert.equal(mobileLaunchLink(id), https);
   assert.throws(() => androidAppointmentIntent('evil\n'));
+});
+
+function composeFixture() {
+  const office = officeFixture(); office.context.platform = 'PC';
+  let nativeId = 'ews-occurrence'; let reads = 0; let saves = 0;
+  const asyncValue = (value) => ({ getAsync: (done) => done({ status: 'succeeded', value }) });
+  office.context.mailbox.convertToRestId = (id) => 'rest-' + id;
+  office.context.mailbox.item = {
+    getItemIdAsync: (done) => { reads++; done({ status: 'succeeded', value: nativeId }); },
+    subject: asyncValue('IT Meeting'), start: asyncValue(new Date('2026-10-27T12:30Z')), end: asyncValue(new Date('2026-10-27T13:30Z')),
+    location: asyncValue('Teams'), saveAsync: () => { saves++; throw new Error('must never save'); },
+  };
+  return { office, id(value) { nativeId = value; }, reads: () => reads, saves: () => saves };
+}
+
+test('regression capture 2.3.4 : occurrence en modification sans itemId utilise getItemIdAsync et la conversion REST', async () => {
+  const f = composeFixture();
+  await withOffice(f.office, async () => {
+    const context = await getAppointmentContext();
+    assert.equal(context.itemId, 'ews-occurrence'); assert.equal(context.restItemId, 'rest-ews-occurrence');
+    assert.equal(context.identitySource, 'getItemIdAsync'); assert.equal(context.subject, 'IT Meeting');
+    assert.equal(context.start.toISOString(), '2026-10-27T12:30:00.000Z');
+    assert.equal(f.reads(), 2, 'lecture avant et apres les champs'); assert.equal(f.saves(), 0);
+    const session = new AppointmentSession(); session.use(context);
+    await session.capture().ensureCurrent(); assert.equal(f.saves(), 0);
+  });
+});
+
+test('compose : reutilisation du meme objet Office avec un autre ID bloque la session async', async () => {
+  const f = composeFixture();
+  await withOffice(f.office, async () => {
+    const context = await getAppointmentContext();
+    const session = new AppointmentSession(); session.use(context); const scope = session.capture();
+    f.id('different-occurrence');
+    assert.doesNotThrow(scope.ensure, 'le check synchrone seul ne peut pas relire Office');
+    await assert.rejects(scope.ensureCurrent, { code: 'OUTLOOK_CONTEXT_CHANGED' });
+    assert.equal(f.saves(), 0);
+  });
+});
+
+test('compose : nouveau wrapper pendant lecture async refuse, meme si le callback ancien retourne le bon ID', async () => {
+  const f = composeFixture();
+  await withOffice(f.office, async () => {
+    const context = await getAppointmentContext();
+    f.office.context.mailbox.item.getItemIdAsync = (done) => {
+      f.office.context.mailbox.item = item('another'); done({ status: 'succeeded', value: context.itemId });
+    };
+    await assert.rejects(assertAppointmentContextAsync(context), { code: 'OUTLOOK_CONTEXT_CHANGED' });
+  });
+});
+
+test('compose non enregistre : message utile, pas de faux changement de contexte ni saveAsync automatique', async () => {
+  const f = composeFixture();
+  f.office.context.mailbox.item.getItemIdAsync = (done) => done({ status: 'failed', error: { code: 'ItemNotSaved' } });
+  await withOffice(f.office, async () => {
+    await assert.rejects(getAppointmentContext(), (error) => error.code === 'OUTLOOK_ITEM_ID_UNAVAILABLE' && /Enregistrez/.test(error.message));
+    assert.equal(f.saves(), 0);
+  });
+});
+
+test('ancien client compose sans getItemIdAsync : bloque sans sauvegarder ni modifier les permissions', async () => {
+  const f = composeFixture(); delete f.office.context.mailbox.item.getItemIdAsync;
+  await withOffice(f.office, async () => {
+    await assert.rejects(getAppointmentContext(), { code: 'OUTLOOK_ITEM_ID_UNAVAILABLE' }); assert.equal(f.saves(), 0);
+  });
+});
+
+test('lecture invite/mobile : itemId conserve, getItemIdAsync inutile jamais appele', async () => {
+  const office = officeFixture('rest-read');
+  office.context.mailbox.item.getItemIdAsync = () => { throw new Error('read mode must not call compose API'); };
+  await withOffice(office, async () => {
+    const context = await getAppointmentContext();
+    assert.equal(context.itemId, 'rest-read'); assert.equal(context.restItemId, 'rest-read');
+    await assertAppointmentContextAsync(context);
+  });
+});
+
+test('compose : Graph recoit uniquement l’identifiant REST de l’occurrence enregistree, pas le maitre ou une recherche par titre', async () => {
+  const f = composeFixture(); const oldFetch = globalThis.fetch; const calls = [];
+  await withOffice(f.office, async () => {
+    const context = await getAppointmentContext();
+    globalThis.fetch = async (url, options) => {
+      calls.push({url,options});
+      return Response.json({ id: context.restItemId, subject: context.subject, type: 'occurrence', seriesMasterId: 'rest-master',
+        start: {dateTime:context.start.toISOString()}, end: {dateTime:context.end.toISOString()} });
+    };
+    try {
+      assert.equal((await resolveOutlookEvent('fake', context)).id, 'rest-ews-occurrence');
+      assert.equal(calls.length, 1); assert.match(calls[0].url, /\/me\/events\/rest-ews-occurrence\?/);
+      assert.equal(calls[0].options.method, undefined); assert.equal(f.saves(), 0);
+    } finally { globalThis.fetch = oldFetch; }
+  });
 });

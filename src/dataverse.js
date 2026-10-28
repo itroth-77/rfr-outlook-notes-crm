@@ -243,7 +243,7 @@ export async function updateAppointmentQualification(
   const current = await readEditingTarget(config, token, appointmentId, expected);
   const options = await getAppointmentQualificationOptions(config, token, current);
   if (!options.some((option) => option.value === value)) throw new Error("Cette qualification n’est pas disponible sur la cible Dynamics.");
-  ensureCurrent();
+  await ensureCurrent();
   await dataverseFetch(config, token, editingPath(current), {
     method: "PATCH",
     headers: { "If-Match": current.editTarget.etag },
@@ -477,7 +477,7 @@ export async function updateAppointmentRegarding(config, token, appointmentId, r
     if (names.length !== 1 || !/^regardingobjectid_[a-z0-9_]+$/.test(names[0])) throw new Error("La relation Concernant de la série est ambiguë. Aucune occurrence ne sera modifiée.");
     payload = { [names[0] + "@odata.bind"]: `/${REGARDING_TYPES[regarding.logicalName].entitySet}(${normalizeGuid(regarding.id)})` };
   }
-  ensureCurrent();
+  await ensureCurrent();
   await dataverseFetch(config, token, editingPath(current), {
     method: "PATCH",
     headers: { "If-Match": current.editTarget.etag },
@@ -637,7 +637,7 @@ async function getEntitySetName(config, token, logicalName) {
 export async function createRegardingNote(config, token, regarding, note, appointmentId, ensureCurrent = () => {}) {
   appointmentNoteReference(appointmentId); // Bloquer avant tout appel si la séance n’est pas identifiée.
   const entitySetName = await getEntitySetName(config, token, regarding.logicalName);
-  ensureCurrent();
+  await ensureCurrent();
   return dataverseFetch(config, token, "/annotations", {
     method: "POST",
     headers: {

@@ -91,7 +91,7 @@ for (const scenario of ["master", "etag", "scope", "selection"]) test(`Outlook r
   if (scenario === "etag") delete f.master["@odata.etag"];
   if (scenario === "scope") expected.seriesMasterId = "another";
   await withFetch(f.fetch, async () => {
-    await assert.rejects(trackOutlookAppointment("fake", context, expected, () => { if (scenario === "selection") throw new Error("changed"); }));
+    await assert.rejects(trackOutlookAppointment("fake", context, expected, async () => { await Promise.resolve(); if (scenario === "selection") throw new Error("changed"); }));
     assert.equal(f.calls.filter((call) => call.method === "PATCH").length, 0);
   });
 });
@@ -212,7 +212,7 @@ for (const scenario of ["etag", "confirmation", "relationship", "selection", "va
     if (scenario === "etag") f.master["@odata.etag"] = 'W/"another"';
     if (scenario === "relationship") await assert.rejects(updateAppointmentRegarding(config, "fake", id, { id: targetId, logicalName: "account" }, expected));
     else await assert.rejects(updateAppointmentQualification(config, "fake", id, scenario === "value" ? 999 : 2,
-      scenario === "confirmation" ? undefined : expected, () => { if (scenario === "selection") throw new Error("changed"); }));
+      scenario === "confirmation" ? undefined : expected, async () => { await Promise.resolve(); if (scenario === "selection") throw new Error("changed"); }));
     assert.equal(f.calls.filter((call) => call.method === "PATCH").length, 0);
   });
 });
@@ -243,5 +243,15 @@ test("Dynamics RDV simple : PATCH individuel conserve", async () => {
     await updateAppointmentQualification(config, "fake", id, 2, expected);
     assert.equal(f.calls.filter((call) => call.method === "PATCH")[0].url, `${config.dataverseUrl}/api/data/v9.2/appointments(${id})`);
     assert.ok(f.calls.every((call) => !call.url.includes("recurringappointmentmasters")));
+  });
+});
+
+test('Dynamics Concernant : refus du controle Office async attendu avant PATCH', async () => {
+  const f = crmFixture();
+  await withFetch(f.fetch, async () => {
+    const expected = await resolveAppointmentEditingTarget(config, 'fake', f.occurrence, true);
+    await assert.rejects(updateAppointmentRegarding(config, 'fake', id, { id: targetId, logicalName: 'account' }, expected,
+      async () => { await Promise.resolve(); throw new Error('compose_item_changed'); }), /compose_item_changed/);
+    assert.equal(f.calls.filter((call) => call.method === 'PATCH').length, 0);
   });
 });

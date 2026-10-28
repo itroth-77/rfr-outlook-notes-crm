@@ -62,7 +62,7 @@ test('note : contexte revalide apres metadonnees et immediatement avant POST', a
     return Response.json({ EntitySetName: 'accounts' });
   }, async () => {
     await assert.rejects(createRegardingNote(config, 'fake', target, { subject: 'Note', text: 'Texte' }, id,
-      () => { throw new Error('appointment changed'); }), /appointment changed/);
+      async () => { await Promise.resolve(); throw new Error('appointment changed'); }), /appointment changed/);
     assert.equal(posts, 0);
   });
 });

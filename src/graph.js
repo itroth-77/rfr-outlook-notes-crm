@@ -118,7 +118,7 @@ export async function trackOutlookAppointment(token, context, expected, ensureCu
   if (!alreadyTracked) {
     const etag = target["@odata.etag"];
     if (!etag || /[\r\n]/.test(etag)) throw new Error("La version Outlook manque pour préserver les autres catégories. Actualisez.");
-    ensureCurrent();
+    await ensureCurrent();
     await graphFetch(token, eventPath(target.id), { method: "PATCH", headers: { "If-Match": etag },
       body: JSON.stringify({ categories: [...(target.categories || []), TRACKED_TO_DYNAMICS_CATEGORY] }) });
   }
