@@ -1,4 +1,5 @@
 import { withTimeout } from "./resilience.js";
+import { appointmentNoteReference, belongsToAppointment, withAppointmentReference } from "./appointment-notes.js";
 
 const API_PATH = "/api/data/v9.2";
 const DATAVERSE_TIMEOUT_MS = 20_000;
@@ -50,6 +51,8 @@ export function buildAppointmentQuery(context) {
     "globalobjectid",
     "_regardingobjectid_value",
     APPOINTMENT_QUALIFICATION_FIELD,
+    "instancetypecode",
+    "seriesid",
   ].join(",");
   const filter = `scheduledstart ge ${windowStart} and scheduledstart le ${windowEnd}`;
 
@@ -111,7 +114,11 @@ async function dataverseFetch(config, token, path, options = {}) {
     } catch {
       detail = await response.text();
     }
-    throw new Error(`Dataverse ${response.status} : ${detail || response.statusText}`);
+    const error = new Error([409, 412].includes(response.status)
+      ? "Les données Dynamics ont changé. Actualisez puis confirmez à nouveau ; aucune relance automatique."
+      : `Dataverse ${response.status} : ${detail || response.statusText}`);
+    error.status = response.status;
+    throw error;
   }
 
   if (response.status === 204) return null;
@@ -208,7 +215,12 @@ export function extractQualificationOptions(attributeMetadata, languageCode = 10
     .sort((left, right) => left.label.localeCompare(right.label, "fr", { sensitivity: "base" }));
 }
 
-export async function getAppointmentQualificationOptions(config, token) {
+export async function getAppointmentQualificationOptions(config, token, appointment) {
+  if (appointment?.editTarget?.kind === "blocked") throw new Error(appointment.editTarget.reason);
+  if (appointment?.editTarget?.kind === "series") {
+    if (appointment.editTarget.qualificationError) throw new Error(appointment.editTarget.qualificationError);
+    return extractQualificationOptions(await getSeriesQualificationMetadata(config, token));
+  }
   const path =
     `/EntityDefinitions(LogicalName='appointment')` +
     `/Attributes(LogicalName='${APPOINTMENT_QUALIFICATION_FIELD}')` +
@@ -223,18 +235,29 @@ export async function updateAppointmentQualification(
   token,
   appointmentId,
   qualificationValue,
+  expected,
+  ensureCurrent = () => {},
 ) {
-  const id = String(appointmentId).replace(/[{}]/g, "");
-  return dataverseFetch(config, token, `/appointments(${id})`, {
+  const value = Number(qualificationValue);
+  if (!Number.isInteger(value)) throw new Error("Qualification invalide.");
+  const current = await readEditingTarget(config, token, appointmentId, expected);
+  const options = await getAppointmentQualificationOptions(config, token, current);
+  if (!options.some((option) => option.value === value)) throw new Error("Cette qualification n’est pas disponible sur la cible Dynamics.");
+  ensureCurrent();
+  await dataverseFetch(config, token, editingPath(current), {
     method: "PATCH",
-    headers: {
-      Prefer:
-        'return=representation,odata.include-annotations="OData.Community.Display.V1.FormattedValue"',
-    },
+    headers: { "If-Match": current.editTarget.etag },
     body: JSON.stringify({
-      [APPOINTMENT_QUALIFICATION_FIELD]: Number(qualificationValue),
+      [APPOINTMENT_QUALIFICATION_FIELD]: value,
     }),
   });
+  const saved = await dataverseFetch(config, token, editingPath(current) + `?$select=${APPOINTMENT_QUALIFICATION_FIELD}`);
+  if (saved[APPOINTMENT_QUALIFICATION_FIELD] !== value) throw new Error("La qualification enregistrée n’est pas confirmée. Actualisez avant toute relance.");
+  const updated = await readCurrentTarget(config, token, appointmentId, current);
+  if (current.editTarget.kind === "series" && updated.occurrenceQualification !== value) {
+    updated.seriesNotice = "Qualification enregistrée sur la série. Cette séance n’a pas repris la valeur : exception ou propagation à vérifier par l’administrateur Dynamics.";
+  }
+  return updated;
 }
 
 export function parseRegardingSearchFragments(searchText) {
@@ -440,17 +463,124 @@ export function buildAppointmentRegardingPayload(logicalName, recordId) {
   };
 }
 
-export async function updateAppointmentRegarding(config, token, appointmentId, regarding) {
+export async function updateAppointmentRegarding(config, token, appointmentId, regarding, expected, ensureCurrent = () => {}) {
   const id = normalizeGuid(appointmentId);
   if (!id) throw new Error("L’identifiant du rendez-vous CRM n’est pas valide.");
-  return dataverseFetch(config, token, `/appointments(${id})`, {
+  const current = await readEditingTarget(config, token, id, expected);
+  let payload = buildAppointmentRegardingPayload(regarding.logicalName, regarding.id);
+  if (current.editTarget.kind === "series") {
+    const filter = `ReferencingEntity eq 'recurringappointmentmaster' and ReferencingAttribute eq 'regardingobjectid' and ReferencedEntity eq '${regarding.logicalName}'`;
+    const metadata = await dataverseFetch(config, token,
+      "/EntityDefinitions(LogicalName='recurringappointmentmaster')/ManyToOneRelationships" +
+      `?$select=ReferencingEntityNavigationPropertyName&$filter=${encodeURIComponent(filter)}`);
+    const names = [...new Set((metadata.value || []).map((row) => row.ReferencingEntityNavigationPropertyName).filter(Boolean))];
+    if (names.length !== 1 || !/^regardingobjectid_[a-z0-9_]+$/.test(names[0])) throw new Error("La relation Concernant de la série est ambiguë. Aucune occurrence ne sera modifiée.");
+    payload = { [names[0] + "@odata.bind"]: `/${REGARDING_TYPES[regarding.logicalName].entitySet}(${normalizeGuid(regarding.id)})` };
+  }
+  ensureCurrent();
+  await dataverseFetch(config, token, editingPath(current), {
     method: "PATCH",
-    headers: {
-      Prefer:
-        'return=representation,odata.include-annotations="OData.Community.Display.V1.FormattedValue,Microsoft.Dynamics.CRM.lookuplogicalname"',
-    },
-    body: JSON.stringify(buildAppointmentRegardingPayload(regarding.logicalName, regarding.id)),
+    headers: { "If-Match": current.editTarget.etag },
+    body: JSON.stringify(payload),
   });
+  const saved = await dataverseFetch(config, token, editingPath(current) + "?$select=_regardingobjectid_value");
+  const verified = getRegardingReference(saved);
+  if (verified?.id !== normalizeGuid(regarding.id) || verified?.logicalName !== regarding.logicalName) throw new Error("Le Concernant enregistré n’est pas confirmé. Actualisez avant toute relance.");
+  return readCurrentTarget(config, token, id, current);
+}
+
+const targetSelect = ["activityid", "subject", "scheduledstart", "scheduledend", "instancetypecode", "seriesid",
+  "_regardingobjectid_value", APPOINTMENT_QUALIFICATION_FIELD].join(",");
+
+async function getSeriesQualificationMetadata(config, token) {
+  const field = `/Attributes(LogicalName='${APPOINTMENT_QUALIFICATION_FIELD}')`;
+  const [master, occurrence] = await Promise.all([
+    dataverseFetch(config, token, "/EntityDefinitions(LogicalName='recurringappointmentmaster')" + field +
+      "/Microsoft.Dynamics.CRM.PicklistAttributeMetadata?$select=MetadataId,LogicalName,LinkedAttributeId,IsValidForRead,IsValidForUpdate,IsSecured&$expand=OptionSet"),
+    dataverseFetch(config, token, "/EntityDefinitions(LogicalName='appointment')" + field + "?$select=MetadataId"),
+  ]);
+  if (master.LogicalName !== APPOINTMENT_QUALIFICATION_FIELD || master.IsValidForRead !== true ||
+    master.IsValidForUpdate !== true || master.IsSecured === true || !extractQualificationOptions(master).length) {
+    throw new Error("Qualification de série indisponible : champ absent, sécurisé, non modifiable ou sans choix. Aucun schéma ne sera modifié.");
+  }
+  return { ...master, propagationLinked: Boolean(normalizeGuid(master.LinkedAttributeId) &&
+    normalizeGuid(master.LinkedAttributeId) === normalizeGuid(occurrence.MetadataId)) };
+}
+
+/** Garde l'identifiant de la seance pour son contexte, mais affiche/edite le maitre CRM. */
+export async function resolveAppointmentEditingTarget(config, token, candidate, expectSeries = false) {
+  const id = normalizeGuid(candidate.activityid);
+  if (!id) throw new Error("Identifiant de rendez-vous Dynamics invalide.");
+  const type = candidate.instancetypecode;
+  const recurring = expectSeries || Boolean(candidate.seriesid) || [1, 2, 3, 4].includes(type);
+  const blocked = (reason) => ({ ...candidate, editTarget: { kind: "blocked", id: "", reason }, noteBlockedReason: reason });
+  if (!recurring) return type === 0
+    ? { ...candidate, editTarget: { kind: "single", id, etag: candidate["@odata.etag"] } }
+    : blocked("Le type Dynamics du rendez-vous n’est pas vérifiable. Actualisez avant de modifier.");
+  const masterId = type === 1 ? id : normalizeGuid(candidate.seriesid);
+  if (!masterId || ![1, 2, 3, 4].includes(type)) return blocked("La série Dynamics n’est pas identifiée. Aucune occurrence seule ne sera modifiée.");
+  let qualificationError, metadata;
+  try { metadata = await getSeriesQualificationMetadata(config, token); }
+  catch { qualificationError = "Qualification de série indisponible : faire vérifier le champ rfr_os_appointmentqualification et ses droits sur RecurringAppointmentMaster. Aucun schéma modifié."; }
+  const select = ["activityid", "subject", "scheduledstart", "scheduledend", "instancetypecode", "_regardingobjectid_value",
+    ...(!qualificationError ? [APPOINTMENT_QUALIFICATION_FIELD] : [])].join(",");
+  let master;
+  try { master = await dataverseFetch(config, token, `/recurringappointmentmasters(${masterId})?$select=${select}`); }
+  catch (error) {
+    if ([403, 404].includes(error.status)) return blocked("Le maître Dynamics est absent ou inaccessible avec vos droits. Aucune occurrence ne sera modifiée.");
+    throw error;
+  }
+  if (normalizeGuid(master.activityid) !== masterId || master.instancetypecode !== 1) return blocked("Le maître Dynamics n’est pas vérifiable. Aucune occurrence ne sera modifiée.");
+  const regarding = getRegardingReference(master), occurrenceRegarding = getRegardingReference(candidate);
+  const differs = regarding?.id !== occurrenceRegarding?.id || regarding?.logicalName !== occurrenceRegarding?.logicalName;
+  return { ...candidate,
+    _regardingobjectid_value: master._regardingobjectid_value,
+    "_regardingobjectid_value@Microsoft.Dynamics.CRM.lookuplogicalname": master["_regardingobjectid_value@Microsoft.Dynamics.CRM.lookuplogicalname"],
+    "_regardingobjectid_value@OData.Community.Display.V1.FormattedValue": master["_regardingobjectid_value@OData.Community.Display.V1.FormattedValue"],
+    [APPOINTMENT_QUALIFICATION_FIELD]: qualificationError ? undefined : master[APPOINTMENT_QUALIFICATION_FIELD],
+    [`${APPOINTMENT_QUALIFICATION_FIELD}@OData.Community.Display.V1.FormattedValue`]: master[`${APPOINTMENT_QUALIFICATION_FIELD}@OData.Community.Display.V1.FormattedValue`],
+    occurrenceQualification: candidate[APPOINTMENT_QUALIFICATION_FIELD],
+    editTarget: { kind: "series", id: masterId, etag: master["@odata.etag"], qualificationError },
+    seriesNotice: metadata && !metadata.propagationLinked
+      ? "Toute la série Dynamics sera modifiée. La copie de la qualification aux séances n’est pas confirmée ; les exceptions sont conservées."
+      : "Toute la série Dynamics sera modifiée. Les exceptions déjà personnalisées sont conservées.",
+    noteBlockedReason: differs ? "Le Concernant de cette séance diffère de celui de la série (exception ou synchronisation en attente). Vérifiez dans Dynamics avant de créer une note ; aucune note n’est déplacée." : null,
+  };
+}
+
+function editingPath(candidate) {
+  const target = candidate.editTarget;
+  return `/${target.kind === "series" ? "recurringappointmentmasters" : "appointments"}(${target.id})`;
+}
+
+async function readCurrentTarget(config, token, appointmentId, expected) {
+  const id = normalizeGuid(appointmentId);
+  if (!id) throw new Error("Identifiant Dynamics invalide.");
+  const master = expected?.editTarget?.kind === "series" && expected.editTarget.id === id;
+  const select = master ? targetSelect.split(",").filter((field) => field !== "seriesid" &&
+    !(field === APPOINTMENT_QUALIFICATION_FIELD && expected.editTarget.qualificationError)).join(",") : targetSelect;
+  const row = await dataverseFetch(config, token, `/${master ? "recurringappointmentmasters" : "appointments"}(${id})?$select=${select}`);
+  if (normalizeGuid(row.activityid) !== id) throw new Error("Le rendez-vous Dynamics a changé.");
+  return resolveAppointmentEditingTarget(config, token, row, expected?.editTarget?.kind === "series");
+}
+
+async function readEditingTarget(config, token, id, expected) {
+  const current = await readCurrentTarget(config, token, id, expected), target = current.editTarget;
+  if (target.kind === "blocked") throw new Error(target.reason);
+  if (target.kind === "series" && expected?.editTarget?.kind !== "series") throw new Error("Confirmez explicitement la modification de toute la série.");
+  if (expected?.editTarget && (expected.activityid !== current.activityid || expected.editTarget.id !== target.id ||
+    expected.editTarget.kind !== target.kind || expected.editTarget.etag !== target.etag)) throw new Error("Les informations Dynamics ont changé. Actualisez et confirmez à nouveau.");
+  if (!target.etag || /[\r\n]/.test(target.etag)) throw new Error("Version Dynamics absente : aucune modification effectuée.");
+  return current;
+}
+
+export async function verifyAppointmentNoteTarget(config, token, expected) {
+  const current = await readCurrentTarget(config, token, expected.activityid, expected);
+  if (current.noteBlockedReason || current.editTarget.kind === "blocked") throw new Error(current.noteBlockedReason || current.editTarget.reason);
+  const regarding = getRegardingReference(current), before = getRegardingReference(expected);
+  if (!regarding || !before || regarding.id !== before.id || regarding.logicalName !== before.logicalName ||
+    current.editTarget.id !== expected.editTarget.id || current.editTarget.kind !== expected.editTarget.kind) throw new Error("Le Concernant a changé. Actualisez puis confirmez à nouveau avant de créer la note.");
+  return regarding;
 }
 
 export function getRegardingReference(candidate) {
@@ -470,17 +600,21 @@ export function getRegardingReference(candidate) {
   };
 }
 
-export async function getRegardingNotes(config, token, regarding) {
-  const filter = encodeURIComponent(`_objectid_value eq ${regarding.id}`);
-  const path = `/annotations?$select=annotationid,subject,notetext,createdon&$filter=${filter}&$orderby=createdon desc&$top=20`;
+export async function getAppointmentNotes(config, token, regarding, appointmentId) {
+  const marker = appointmentNoteReference(appointmentId);
+  const id = normalizeGuid(appointmentId), target = normalizeGuid(regarding?.id);
+  if (!target) throw new Error("Le Concernant du rendez-vous doit être vérifié.");
+  const filter = encodeURIComponent(`_objectid_value eq ${id} or (_objectid_value eq ${target} and contains(notetext,'${marker}'))`);
+  const path = `/annotations?$select=annotationid,subject,notetext,createdon,_objectid_value&$filter=${filter}&$orderby=createdon desc&$top=20`;
   const result = await dataverseFetch(config, token, path);
-  return result.value || [];
+  return (result.value || []).filter((note) => normalizeGuid(note._objectid_value) === id ||
+    (normalizeGuid(note._objectid_value) === target && belongsToAppointment(note.notetext, id))).slice(0, 20);
 }
 
-export function buildRegardingNotePayload(regarding, entitySetName, note) {
+export function buildRegardingNotePayload(regarding, entitySetName, note, appointmentId) {
   return {
     subject: note.subject,
-    notetext: note.text,
+    notetext: appointmentId ? withAppointmentReference(note.text, appointmentId) : note.text,
     [`objectid_${regarding.logicalName}@odata.bind`]: `/${entitySetName}(${regarding.id})`,
   };
 }
@@ -500,14 +634,15 @@ async function getEntitySetName(config, token, logicalName) {
   return metadata.EntitySetName;
 }
 
-export async function createRegardingNote(config, token, regarding, note) {
+export async function createRegardingNote(config, token, regarding, note, appointmentId) {
+  appointmentNoteReference(appointmentId); // Bloquer avant tout appel si la séance n’est pas identifiée.
   const entitySetName = await getEntitySetName(config, token, regarding.logicalName);
   return dataverseFetch(config, token, "/annotations", {
     method: "POST",
     headers: {
       Prefer: "return=representation",
     },
-    body: JSON.stringify(buildRegardingNotePayload(regarding, entitySetName, note)),
+    body: JSON.stringify(buildRegardingNotePayload(regarding, entitySetName, note, appointmentId)),
   });
 }
 

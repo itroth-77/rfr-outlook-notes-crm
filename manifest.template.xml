@@ -10,8 +10,8 @@
   <Version>{{MANIFEST_VERSION}}</Version>
   <ProviderName>Roth France</ProviderName>
   <DefaultLocale>fr-FR</DefaultLocale>
-  <DisplayName DefaultValue="RFR Notes CRM — v{{APP_VERSION}}" />
-  <Description DefaultValue="Version {{APP_VERSION}} — Met à jour la qualification du rendez-vous et ajoute un compte rendu sur son Concernant dans Dynamics 365." />
+  <DisplayName DefaultValue="RDV &amp; Notes" />
+  <Description DefaultValue="Version {{APP_VERSION}} — Suivi Dynamics, Qualification, Concernant et notes manuelles pour les rendez-vous simples ou récurrents." />
   <IconUrl DefaultValue="{{APP_URL}}/assets/icon-32.png" />
   <HighResolutionIconUrl DefaultValue="{{APP_URL}}/assets/icon-80.png" />
   <SupportUrl DefaultValue="{{APP_URL}}" />
@@ -19,6 +19,7 @@
   <AppDomains>
     <AppDomain>{{APP_ORIGIN}}</AppDomain>
     <AppDomain>{{DATAVERSE_URL}}</AppDomain>
+    <AppDomain>https://cr-api.roth-france.fr</AppDomain>
   </AppDomains>
 
   <Hosts><Host Name="Mailbox" /></Hosts>
@@ -50,6 +51,23 @@
                 <Group id="RfrCrmNotes.DesktopGroup">
                   <Label resid="GroupLabel" />
                   <Control xsi:type="Button" id="RfrCrmNotes.DesktopButton">
+                    <Label resid="ButtonLabel" />
+                    <Supertip><Title resid="ButtonTitle" /><Description resid="ButtonDescription" /></Supertip>
+                    <Icon>
+                      <bt:Image size="16" resid="Icon16" />
+                      <bt:Image size="32" resid="Icon32" />
+                      <bt:Image size="80" resid="Icon80" />
+                    </Icon>
+                    <Action xsi:type="ShowTaskpane"><SourceLocation resid="Taskpane.Url" /></Action>
+                  </Control>
+                </Group>
+              </OfficeTab>
+            </ExtensionPoint>
+            <ExtensionPoint xsi:type="AppointmentOrganizerCommandSurface">
+              <OfficeTab id="TabDefault">
+                <Group id="RfrCrmNotes.OrganizerGroup">
+                  <Label resid="GroupLabel" />
+                  <Control xsi:type="Button" id="RfrCrmNotes.OrganizerButton">
                     <Label resid="ButtonLabel" />
                     <Supertip><Title resid="ButtonTitle" /><Description resid="ButtonDescription" /></Supertip>
                     <Icon>
@@ -95,12 +113,12 @@
         <bt:Urls><bt:Url id="Taskpane.Url" DefaultValue="{{APP_URL}}/index.html?v={{APP_VERSION}}" /></bt:Urls>
         <bt:ShortStrings>
           <bt:String id="Description" DefaultValue="Ajoute et consulte les notes du rendez-vous Dynamics 365." />
-          <bt:String id="GroupLabel" DefaultValue="RFR Notes CRM" />
-          <bt:String id="ButtonLabel" DefaultValue="RFR Notes CRM" />
-          <bt:String id="ButtonTitle" DefaultValue="RFR Notes CRM" />
+          <bt:String id="GroupLabel" DefaultValue="RDV &amp; Notes" />
+          <bt:String id="ButtonLabel" DefaultValue="RDV &amp; Notes" />
+          <bt:String id="ButtonTitle" DefaultValue="RDV &amp; Notes" />
         </bt:ShortStrings>
         <bt:LongStrings>
-          <bt:String id="ButtonDescription" DefaultValue="Ajouter un compte rendu dans le rendez-vous CRM." />
+          <bt:String id="ButtonDescription" DefaultValue="Modifier le Concernant et la Qualification, suivre le RDV dans Dynamics ou ajouter une note simple." />
         </bt:LongStrings>
       </Resources>
     </VersionOverrides>

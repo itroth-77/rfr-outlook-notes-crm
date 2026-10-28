@@ -131,6 +131,26 @@ async function readOptional(readOperation) {
   }
 }
 
+export function isOutlookMobile(office = globalThis.Office) {
+  const platform = office?.context?.platform;
+  return ["Android", "iOS"].includes(platform) ||
+    /^(OutlookIOS|OutlookAndroid)$/i.test(office?.context?.mailbox?.diagnostics?.hostName || "");
+}
+
+export function getRestItemId(item, office = globalThis.Office) {
+  if (!item?.itemId) return "";
+  if (isOutlookMobile(office)) return item.itemId;
+  const mailbox = office?.context?.mailbox;
+  if (typeof mailbox?.convertToRestId !== "function") return "";
+  return mailbox.convertToRestId(item.itemId, office.MailboxEnums.RestVersion.v2_0);
+}
+
+export function assertAppointmentContext(context, office = globalThis.Office) {
+  if (!context?.itemId || office?.context?.mailbox?.item?.itemId !== context.itemId) {
+    throw new Error("Le rendez-vous ouvert dans Outlook a changé. Fermez puis rouvrez le complément avant de continuer.");
+  }
+}
+
 async function getAppointmentContextOnce(onPhase, attempt) {
   onPhase?.("office_library", attempt);
   await ensureOfficeJs();
@@ -190,6 +210,9 @@ async function getAppointmentContextOnce(onPhase, attempt) {
 
   return {
     itemId: item.itemId || "",
+    restItemId: getRestItemId(item),
+    itemIdFormat: isOutlookMobile() ? "restId" : "ewsId",
+    isMobile: isOutlookMobile(),
     subject: String(subject),
     start: parsedStart,
     end: parsedEnd,

@@ -54,43 +54,73 @@ async function graphFetch(token, path, options = {}) {
     } catch {
       detail = await response.text();
     }
-    throw new Error(`Microsoft Graph ${response.status} : ${detail || response.statusText}`);
+    const error = new Error([409, 412].includes(response.status)
+      ? "Le rendez-vous a changé dans Outlook. Actualisez et confirmez à nouveau ; aucune relance automatique."
+      : `Microsoft Graph ${response.status} : ${detail || response.statusText}`);
+    error.status = response.status;
+    throw error;
   }
 
   if (response.status === 204) return null;
   return response.json();
 }
 
-export async function trackOutlookAppointment(token, context) {
-  const start = new Date(new Date(context.start).getTime() - 60_000).toISOString();
-  const end = new Date(new Date(context.end).getTime() + 60_000).toISOString();
-  const query = new URLSearchParams({
-    startDateTime: start,
-    endDateTime: end,
-    $select: "id,subject,start,end,categories",
-    $top: "20",
-  });
-  const result = await graphFetch(token, `/me/calendarView?${query}`, {
-    headers: { Prefer: 'outlook.timezone="UTC"' },
-  });
-  const event = chooseExactGraphEvent(result.value || [], context);
-  if (!event) {
-    throw new Error(
-      "Impossible d’identifier de façon unique ce rendez-vous dans le calendrier Outlook.",
-    );
+const EVENT_SELECT = "id,subject,start,end,type,seriesMasterId,categories,isOrganizer,isCancelled";
+const eventPath = (id) => `/me/events/${encodeURIComponent(id)}`;
+export const isRecurringEvent = (event) => Boolean(event && event.type !== "singleInstance");
+const tracked = (event) => (event.categories || []).some((value) =>
+  value.trim().toLocaleLowerCase("fr-FR") === TRACKED_TO_DYNAMICS_CATEGORY.toLocaleLowerCase("fr-FR"));
+
+async function readEvent(token, id) {
+  if (typeof id !== "string" || !id || id.length > 2048 || /[\x00-\x1f\x7f]/.test(id)) throw new Error("Identifiant Outlook invalide.");
+  const event = await graphFetch(token, eventPath(id) + "?$select=" + EVENT_SELECT, { headers: { Prefer: 'outlook.timezone="UTC"' } });
+  if (event.id !== id || !["singleInstance", "occurrence", "exception", "seriesMaster"].includes(event.type) || event.isCancelled ||
+    (event.categories !== undefined && (!Array.isArray(event.categories) || event.categories.some((value) => typeof value !== "string")))) {
+    throw new Error("Le rendez-vous Outlook est annulé ou son identité n’est pas vérifiable. Aucune autre copie ne sera utilisée.");
   }
+  return event;
+}
 
-  const currentCategories = Array.isArray(event.categories) ? event.categories : [];
-  const alreadyTracked = currentCategories.some(
-    (category) => category.toLocaleLowerCase("fr-FR") === TRACKED_TO_DYNAMICS_CATEGORY.toLocaleLowerCase("fr-FR"),
-  );
-  if (alreadyTracked) return { alreadyTracked: true, eventId: event.id };
+/** Identite native Office -> Graph, pas d'appariement de secours sur sujet/horaires. */
+export async function resolveOutlookEvent(token, context) {
+  let id = context.restItemId || (context.itemIdFormat === "restId" ? context.itemId : "");
+  if (!id && context.itemId && context.itemIdFormat === "ewsId") {
+    const result = await graphFetch(token, "/me/translateExchangeIds", { method: "POST", body: JSON.stringify({
+      inputIds: [context.itemId], sourceIdType: "ewsId", targetIdType: "restId",
+    }) });
+    if (result.value?.length !== 1 || result.value[0].sourceId !== context.itemId) throw new Error("Conversion de l’identifiant Outlook ambiguë.");
+    id = result.value[0].targetId;
+  }
+  if (!id) throw new Error("Enregistrez puis rouvrez ce rendez-vous pour obtenir son identifiant Outlook.");
+  const event = await readEvent(token, id);
+  if (!chooseExactGraphEvent([event], context)) throw new Error("Le rendez-vous a changé depuis l’ouverture du volet. Fermez puis rouvrez le complément.");
+  return event;
+}
 
-  await graphFetch(token, `/me/events/${encodeURIComponent(event.id)}`, {
-    method: "PATCH",
-    body: JSON.stringify({
-      categories: [...currentCategories, TRACKED_TO_DYNAMICS_CATEGORY],
-    }),
-  });
-  return { alreadyTracked: false, eventId: event.id };
+export async function trackOutlookAppointment(token, context, expected, ensureCurrent = () => {}) {
+  const event = await resolveOutlookEvent(token, context);
+  const recurring = isRecurringEvent(event);
+  if (!expected || expected.id !== event.id || expected.type !== event.type || expected.seriesMasterId !== event.seriesMasterId) {
+    throw new Error("La portée du rendez-vous a changé. Actualisez puis confirmez le suivi du rendez-vous ou de toute la série.");
+  }
+  const masterId = event.type === "seriesMaster" ? event.id : event.seriesMasterId;
+  if (recurring && !masterId) throw new Error("Le maître de série Outlook est introuvable. Aucune occurrence seule ne sera modifiée.");
+  const target = recurring && event.type !== "seriesMaster" ? await readEvent(token, masterId) : event;
+  if (recurring && target.type !== "seriesMaster") throw new Error("Le maître de série Outlook n’est pas vérifiable.");
+  const alreadyTracked = tracked(target);
+  if (!alreadyTracked) {
+    const etag = target["@odata.etag"];
+    if (!etag || /[\r\n]/.test(etag)) throw new Error("La version Outlook manque pour préserver les autres catégories. Actualisez.");
+    ensureCurrent();
+    await graphFetch(token, eventPath(target.id), { method: "PATCH", headers: { "If-Match": etag },
+      body: JSON.stringify({ categories: [...(target.categories || []), TRACKED_TO_DYNAMICS_CATEGORY] }) });
+  }
+  const verified = await readEvent(token, target.id);
+  if (!tracked(verified)) throw new Error("Le suivi n’est pas confirmé sur la cible. Actualisez avant de réessayer.");
+  const selected = target.id === event.id ? verified : await readEvent(token, event.id);
+  if (recurring && selected.id !== target.id && selected.seriesMasterId !== target.id) throw new Error("Le rattachement Outlook a changé après la modification. Vérifiez la série avant toute relance.");
+  return { alreadyTracked, eventId: event.id, event: selected, seriesTrackingVerified: recurring,
+    notice: recurring && !tracked(selected)
+      ? "Catégorie confirmée sur toute la série. Cette occurrence conserve une exception de catégorie ; elle n’a pas été modifiée séparément."
+      : "Catégorie de suivi confirmée dans votre calendrier. La synchronisation Dynamics reste à vérifier." };
 }

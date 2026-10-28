@@ -1,4 +1,44 @@
-# RFR Notes CRM — phase 2
+# RDV & Notes — complément Outlook 2.3.3
+
+Préparation locale du 27 octobre 2026 ; publication autorisée le 28 octobre 2026.
+L'ancien nom RFR Notes CRM est
+remplacé par RDV & Notes sans changer le GUID du complément ni l'authentification.
+
+Périmètre : suivi Dynamics, Qualification, Concernant, note manuelle simple,
+historique et lien vers le RDV dans l'APK. Aucun enregistrement audio,
+transcription, génération ou rattachement de CR dans le complément.
+
+L'historique affiche les 20 dernières notes identifiées pour la seule séance
+sélectionnée, pas toutes celles du Concernant. Les nouvelles notes gardent leur
+rattachement au Concernant et portent une référence `RFR-RDV` fondée sur le GUID
+Dataverse de la séance, commune à l'APK 0.2.9. Ce n'est pas le GUID du maître.
+Les notes directement rattachées au RDV sont également affichées. Les anciennes
+notes sans cette référence restent accessibles dans Dynamics : aucun appariement
+par sujet/date, déplacement ou migration massive n'est effectué.
+Référence API : https://learn.microsoft.com/en-us/power-apps/developer/data-platform/webapi/query/filter-rows
+
+Le manifeste ne met pas lui-même le JavaScript à jour : son URL est celle du site
+partagé existant. Le déploiement GitHub Pages du site doit réussir avant de
+tester les nouveautés dans Outlook. Cette publication concerne les utilisateurs
+actuels du complément ; aucun déploiement de l'APK ou d'Hyperion n'en découle.
+
+Les RDV récurrents sont résolus sur le maître de la copie Outlook de l'utilisateur
+et sur le maître Dynamics via seriesid, jamais par réutilisation d'un identifiant
+Exchange comme GUID CRM. Catégories existantes, exceptions, droits et ETag sont
+préservés. Confirmation explicite « toute la série », sans repli silencieux sur
+une occurrence. Les modifications du Concernant et de Qualification sont
+recontrôlées côté serveur ; aucune adaptation du schéma de production.
+
+Sur bureau/web, deux surfaces sont déclarées : organisateur et invité. Sur mobile,
+le point d'extension Microsoft MobileLogEventAppointmentAttendee reste utilisé ;
+la visibilité réelle selon Outlook et le type de RDV doit être testée. Les tests
+simulés ne garantissent pas que Microsoft affichera le bouton dans toute vue.
+
+Références :
+- https://learn.microsoft.com/en-us/javascript/api/manifest/extensionpoint
+- https://learn.microsoft.com/en-us/office/dev/add-ins/outlook/mobile-log-appointments
+- https://learn.microsoft.com/en-us/graph/api/resources/event
+- https://learn.microsoft.com/en-us/power-apps/developer/data-platform/update-recurring-appointment
 
 Ce projet remplace la page Microsoft « Say hello » par un formulaire mobile de
 compte rendu. Il utilise le compte Microsoft déjà ouvert dans Outlook et crée
