@@ -4,6 +4,13 @@ Préparation locale du 27 octobre 2026 ; publication autorisée le 28 octobre 20
 L'ancien nom RFR Notes CRM est
 remplacé par RDV & Notes sans changer le GUID du complément ni l'authentification.
 
+Le manifeste 2.3.3.1 reprend le logo microphone/Roth/Dynamics fourni le 28 octobre.
+Le dessin complet est conservé ; seuls les PNG sont redimensionnés pour les
+tailles bureau/mobile et haute densité. Le source est dans
+`assets/rdv-notes-logo-source.png` ; `scripts/prepare-icons.py` (Pillow, local)
+permet de reproduire les tailles. Les anciennes URL d'icônes restent disponibles
+pour les manifestes déjà installés. Charger le nouveau XML pour changer ce logo.
+
 Périmètre : suivi Dynamics, Qualification, Concernant, note manuelle simple,
 historique et lien vers le RDV dans l'APK. Aucun enregistrement audio,
 transcription, génération ou rattachement de CR dans le complément.

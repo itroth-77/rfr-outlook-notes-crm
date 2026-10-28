@@ -12,8 +12,8 @@
   <DefaultLocale>fr-FR</DefaultLocale>
   <DisplayName DefaultValue="RDV &amp; Notes" />
   <Description DefaultValue="Version {{APP_VERSION}} — Suivi Dynamics, Qualification, Concernant et notes manuelles pour les rendez-vous simples ou récurrents." />
-  <IconUrl DefaultValue="{{APP_URL}}/assets/icon-32.png" />
-  <HighResolutionIconUrl DefaultValue="{{APP_URL}}/assets/icon-80.png" />
+  <IconUrl DefaultValue="{{APP_URL}}/assets/rdv-notes-logo-64.png" />
+  <HighResolutionIconUrl DefaultValue="{{APP_URL}}/assets/rdv-notes-logo-128.png" />
   <SupportUrl DefaultValue="{{APP_URL}}" />
 
   <AppDomains>
@@ -87,14 +87,14 @@
                 <Label resid="ButtonLabel" />
                 <Icon>
                   <bt:Image size="25" scale="1" resid="Icon25" />
-                  <bt:Image size="25" scale="2" resid="Icon25" />
-                  <bt:Image size="25" scale="3" resid="Icon25" />
+                  <bt:Image size="25" scale="2" resid="Icon25x2" />
+                  <bt:Image size="25" scale="3" resid="Icon25x3" />
                   <bt:Image size="32" scale="1" resid="Icon32" />
-                  <bt:Image size="32" scale="2" resid="Icon32" />
-                  <bt:Image size="32" scale="3" resid="Icon32" />
+                  <bt:Image size="32" scale="2" resid="Icon32x2" />
+                  <bt:Image size="32" scale="3" resid="Icon32x3" />
                   <bt:Image size="48" scale="1" resid="Icon48" />
-                  <bt:Image size="48" scale="2" resid="Icon48" />
-                  <bt:Image size="48" scale="3" resid="Icon48" />
+                  <bt:Image size="48" scale="2" resid="Icon48x2" />
+                  <bt:Image size="48" scale="3" resid="Icon48x3" />
                 </Icon>
                 <Action xsi:type="ShowTaskpane"><SourceLocation resid="Taskpane.Url" /></Action>
               </Control>
@@ -104,11 +104,17 @@
       </Hosts>
       <Resources>
         <bt:Images>
-          <bt:Image id="Icon16" DefaultValue="{{APP_URL}}/assets/icon-16.png" />
-          <bt:Image id="Icon25" DefaultValue="{{APP_URL}}/assets/icon-25.png" />
-          <bt:Image id="Icon32" DefaultValue="{{APP_URL}}/assets/icon-32.png" />
-          <bt:Image id="Icon48" DefaultValue="{{APP_URL}}/assets/icon-48.png" />
-          <bt:Image id="Icon80" DefaultValue="{{APP_URL}}/assets/icon-80.png" />
+          <bt:Image id="Icon16" DefaultValue="{{APP_URL}}/assets/rdv-notes-logo-16.png" />
+          <bt:Image id="Icon25" DefaultValue="{{APP_URL}}/assets/rdv-notes-logo-25.png" />
+          <bt:Image id="Icon25x2" DefaultValue="{{APP_URL}}/assets/rdv-notes-logo-50.png" />
+          <bt:Image id="Icon25x3" DefaultValue="{{APP_URL}}/assets/rdv-notes-logo-75.png" />
+          <bt:Image id="Icon32" DefaultValue="{{APP_URL}}/assets/rdv-notes-logo-32.png" />
+          <bt:Image id="Icon32x2" DefaultValue="{{APP_URL}}/assets/rdv-notes-logo-64.png" />
+          <bt:Image id="Icon32x3" DefaultValue="{{APP_URL}}/assets/rdv-notes-logo-96.png" />
+          <bt:Image id="Icon48" DefaultValue="{{APP_URL}}/assets/rdv-notes-logo-48.png" />
+          <bt:Image id="Icon48x2" DefaultValue="{{APP_URL}}/assets/rdv-notes-logo-96.png" />
+          <bt:Image id="Icon48x3" DefaultValue="{{APP_URL}}/assets/rdv-notes-logo-144.png" />
+          <bt:Image id="Icon80" DefaultValue="{{APP_URL}}/assets/rdv-notes-logo-80.png" />
         </bt:Images>
         <bt:Urls><bt:Url id="Taskpane.Url" DefaultValue="{{APP_URL}}/index.html?v={{APP_VERSION}}" /></bt:Urls>
         <bt:ShortStrings>
